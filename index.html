@@ -319,33 +319,47 @@ function leerJSON(t){
 function preguntarIA(prompt,imagen,signal){
   if(!hayIA())return Promise.reject({code:"sin_clave"});
   var partsP=imagen?blobA64(imagen).then(function(d){return [{text:prompt},{inline_data:{mime_type:imagen.type||"image/jpeg",data:d}}]}):Promise.resolve([{text:prompt}]);
-  return Promise.all([modelos(),partsP]).then(function(r){
-    var list=r[0],parts=r[1],i=0;
+  var listaP=modelos().catch(function(e){if(e&&e.code==="clave")throw e;return []});
+  return Promise.all([listaP,partsP]).then(function(r){
+    var list=r[0].slice(),parts=r[1],i=0,ultimo=null;
+    RESERVA.forEach(function(m){if(list.indexOf(m)<0)list.push(m)});
+    function siguiente(err){ultimo=err;i++;if(i<list.length)return intento();throw ultimo}
     function intento(){
       var m=list[i];
       return fetch(API+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal,
         headers:{"Content-Type":"application/json","x-goog-api-key":clave()},
         body:JSON.stringify({contents:[{role:"user",parts:parts}],generationConfig:{responseMimeType:"application/json",temperature:0.9}})
       }).then(function(res){
-        if((res.status===404||res.status===429||res.status===503)&&i<list.length-1){i++;return intento()}
-        if(res.status===400||res.status===401||res.status===403){return res.text().then(function(t){throw {code:/API key|API_KEY|permission/i.test(t)?"clave":"peticion"}})}
-        if(res.status===429)throw {code:"limite"};
-        if(!res.ok)throw {code:"red"};
-        return res.json();
+        return res.text().then(function(body){
+          var j=null;try{j=JSON.parse(body)}catch(x){}
+          if(!res.ok){
+            var msg=(j&&j.error&&j.error.message)||body.slice(0,200);
+            var err={code:"red",detalle:m+" · "+res.status+" · "+msg};
+            if((res.status===400||res.status===401||res.status===403)&&/API key|API_KEY|PERMISSION_DENIED|permission/i.test(msg)){err.code="clave";throw err}
+            if(res.status===429)err.code="limite";else if(res.status===400)err.code="peticion";
+            return siguiente(err);
+          }
+          var c=j&&j.candidates&&j.candidates[0];
+          var t=c&&c.content&&c.content.parts?c.content.parts.map(function(p){return p.thought?"":(p.text||"")}).join(""):"";
+          if(!t)return siguiente({code:"vacio",detalle:m+" · sin texto"+(c&&c.finishReason?" ("+c.finishReason+")":"")});
+          try{var out=leerJSON(t);lsSet("al_ok_model",m);return out}catch(x){return siguiente({code:"json",detalle:m+" · respuesta no válida"})}
+        });
       });
     }
+    var ok=lsGet("al_ok_model","");if(ok&&list.indexOf(ok)>0){list.splice(list.indexOf(ok),1);list.unshift(ok)}
     return intento();
-  }).then(function(j){
-    if(j&&j.code)return j;
-    var c=j&&j.candidates&&j.candidates[0];
-    var t=c&&c.content&&c.content.parts?c.content.parts.map(function(p){return p.text||""}).join(""):"";
-    if(!t)throw {code:"vacio"};
-    return leerJSON(t);
   }).catch(function(e){
     if(e&&e.name==="AbortError")throw {code:"cancelado"};
     if(e&&e.code)throw e;
-    throw {code:"red"};
+    throw {code:"red",detalle:String(e&&e.message||e||"")};
   });
+}
+var RESERVA=["gemini-2.5-flash","gemini-flash-latest","gemini-2.0-flash","gemini-2.5-flash-lite","gemini-2.0-flash-lite"];
+function probarIA(){
+  st.keyState="loading";st.keyMsg="";render();
+  preguntarIA('Responde SOLO con este JSON: {"ok": true}').then(function(){
+    st.keyState="ok";st.keyMsg="La IA funciona correctamente ("+lsGet("al_ok_model","")+").";
+  }).catch(function(e){st.keyState="error";st.keyMsg=iaErr(e)+(e&&e.detalle?" Detalle: "+e.detalle:"")}).then(render);
 }
 function iaErr(e){var c=e&&e.code;
   if(c==="cancelado")return "";
@@ -561,7 +575,7 @@ function renderAjustes(){
   h+='<label for="keyIn" class="sr">Clave de Gemini</label><div class="keyrow"><input id="keyIn" class="field" type="password" placeholder="'+(k?"••••••••"+esc(k.slice(-4)):"Pega aquí tu clave")+'" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn primary" data-act="guardarClave"'+(st.keyState==="loading"?" disabled":"")+'>Guardar</button></div>';
   if(st.keyState==="loading")h+=cargando("Comprobando la clave…");
   else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
-  if(k)h+='<button class="btn danger small" data-act="quitarClave" style="align-self:flex-start">Quitar la clave</button>';
+  if(k)h+='<div class="row" style="flex-wrap:wrap"><button class="btn small" data-act="probarIA"'+(st.keyState==="loading"?" disabled":"")+'>Probar la IA</button><button class="btn danger small" data-act="quitarClave">Quitar la clave</button></div>';
   h+='</section>';
   h+='<section class="panel"><h2 class="display sm">Fotos</h2><label class="toggle" for="autoBg"><span>Quitar el fondo automáticamente al hacer una foto</span><input type="checkbox" id="autoBg"'+(lsGet("al_auto_bg",true)?" checked":"")+'></label><p class="note">El recorte se hace dentro de tu iPhone. La primera vez descarga unos 40 MB, mejor con wifi.</p></section>';
   h+='<section class="panel"><h2 class="display sm">Copia de seguridad</h2><p class="note">Tus prendas y fotos se guardan solo en este iPhone. Haz una copia de vez en cuando y guárdala en Archivos o iCloud, por si cambias de móvil o borras Safari.</p>'+
@@ -637,11 +651,13 @@ function guardarClave(){
   var anterior=clave();
   lsSet("al_key",val);lsDel("al_models");
   st.keyState="loading";st.keyMsg="";render();
-  modelos().then(function(){st.keyState="ok";st.keyMsg="¡Listo! La IA está conectada.";})
+  lsDel("al_ok_model");
+  modelos().then(function(){probarIA()})
   .catch(function(e){
     if(e&&e.code==="clave"){if(anterior)lsSet("al_key",anterior);else lsDel("al_key");st.keyState="error";st.keyMsg="Esa clave no funciona. Revisa que la hayas copiado entera."}
     else{st.keyState="ok";st.keyMsg="Clave guardada. No he podido comprobarla ahora (¿sin conexión?)."}
-  }).then(render);
+    render();
+  });
 }
 
 /* ================= editor de prenda ================= */
@@ -654,7 +670,9 @@ function abrirEditor(id){
   $("#sheetTitle").textContent=p?"Editar prenda":"Nueva prenda";
   $("#edNombre").value=p?p.nombre||"":"";$("#edMarca").value=p?p.marca||"":"";
   fillSelect($("#edTipo"),TIPOS,p?p.tipo:"Camiseta");fillSelect($("#edEstilo"),ESTILOS,p?p.estilo||"Casual":"Casual");fillSelect($("#edTemporada"),TEMPORADAS,p?p.temporada||"Todo el año":"Todo el año");
-  $("#aiStatus").hidden=true;var b=$("#btnGuardar");b.disabled=false;b.textContent="Guardar prenda";
+  var s=$("#aiStatus");s.hidden=true;
+  if(p&&p.blob&&hayIA()){s.hidden=false;s.innerHTML='<button type="button" class="btn small" data-act="reanalizar">Rellenar datos con la IA</button>'}
+  var b=$("#btnGuardar");b.disabled=false;b.textContent="Guardar prenda";
   renderFoto();renderColores();renderBorrar();
   $("#sheet").hidden=false;document.body.style.overflow="hidden";
 }
@@ -779,7 +797,8 @@ function analizar(blob){
     if(r.color){var k=COLORES.filter(function(c){return c[0].toLowerCase()===String(r.color).toLowerCase()})[0];
       ed.color=k?k[0]:String(r.color);ed.colorHex=k?k[1]:safeHex(r.colorHex);ed.colorBy="ia";renderColores()}
     s.textContent="Listo. Revisa los datos y cambia lo que no esté bien.";
-  }).catch(function(e){if(ed!==mine)return;var m=iaErr(e);if(!m){s.hidden=true;return}s.textContent=m});
+  }).catch(function(e){if(ed!==mine)return;var m=iaErr(e);if(!m){s.hidden=true;return}
+    s.innerHTML=esc(m)+(e&&e.detalle?'<br><small style="font-size:12px">Detalle: '+esc(e.detalle)+'</small>':'')+'<br><button type="button" class="btn small" data-act="reanalizar" style="margin-top:8px">Volver a analizar</button>'});
 }
 function guardar(){
   if(!ed)return;
@@ -857,6 +876,8 @@ document.addEventListener("click",function(e){
     case "noborrar":ed.borrar=false;renderBorrar();break;
     case "siborrar":borrar();break;
     case "recortar":recortar();break;
+    case "reanalizar":if(ed&&(ed.original||ed.blob))analizar(ed.original||ed.blob);break;
+    case "probarIA":probarIA();break;
     case "original":if(ed&&ed.original){setFoto(ed.original,false);ed.recorte="idle";renderFoto()}break;
     case "edcolor":var k=COLORES.filter(function(c){return c[0]===v})[0];ed.color=k[0];ed.colorHex=k[1];ed.colorBy="tu";renderColores();break;
     case "faltan":pedirFaltan();break;

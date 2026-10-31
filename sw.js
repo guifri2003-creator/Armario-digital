@@ -1,6 +1,6 @@
 // Guarda la app en el iPhone para que abra rápido y sin conexión.
 // Sube la versión cada vez que cambie algún archivo de la app.
-const VERSION = "armario-v2";
+const VERSION = "armario-v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
