@@ -152,6 +152,11 @@ select.field{padding:0 10px}
 .photo-box{position:relative;border-radius:22px;background:var(--tile);min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;overflow:hidden;padding:12px}
 .photo-box img{width:100%;max-height:300px;object-fit:contain;display:block}
 .photo-box .change{position:absolute;right:10px;bottom:10px;min-height:38px;padding:0 14px;font-size:13px;background:var(--surface);border-color:var(--line)}
+.photo-box .bgbtn{position:absolute;left:10px;bottom:10px;min-height:38px;padding:0 14px;font-size:13px;background:var(--surface);border-color:var(--line)}
+.photo-box .bgwork{position:absolute;left:10px;right:10px;top:10px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--surface);font-size:13px;color:var(--muted)}
+.photo-box img.working{opacity:.55}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px;min-height:44px}
+.toggle input{width:22px;height:22px;accent-color:var(--accent);flex:none}
 .fieldlbl{display:flex;flex-direction:column;gap:6px}
 .fieldlbl > span{font-size:13px;color:var(--muted)}
 .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -558,6 +563,7 @@ function renderAjustes(){
   else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
   if(k)h+='<button class="btn danger small" data-act="quitarClave" style="align-self:flex-start">Quitar la clave</button>';
   h+='</section>';
+  h+='<section class="panel"><h2 class="display sm">Fotos</h2><label class="toggle" for="autoBg"><span>Quitar el fondo automáticamente al hacer una foto</span><input type="checkbox" id="autoBg"'+(lsGet("al_auto_bg",true)?" checked":"")+'></label><p class="note">El recorte se hace dentro de tu iPhone. La primera vez descarga unos 40 MB, mejor con wifi.</p></section>';
   h+='<section class="panel"><h2 class="display sm">Copia de seguridad</h2><p class="note">Tus prendas y fotos se guardan solo en este iPhone. Haz una copia de vez en cuando y guárdala en Archivos o iCloud, por si cambias de móvil o borras Safari.</p>'+
     '<div class="row" style="flex-wrap:wrap"><button class="btn primary" data-act="exportar"'+(prendas.length?"":" disabled")+'>Hacer copia</button><button class="btn" data-act="importar">Recuperar copia</button></div><p id="bkMsg" class="note" hidden></p></section>';
   h+='<p class="note" style="text-align:center">'+prendas.length+' prendas · '+looks.length+' looks guardados</p>';
@@ -659,7 +665,14 @@ function cerrarEditor(){
 }
 function renderFoto(){
   var src=ed.preview||(ed.id?fotoUrl(byId(ed.id)):null),b=$("#photoBox");
-  if(src)b.innerHTML='<img src="'+src+'" alt="Foto de la prenda"><label for="edFile" class="btn change">Cambiar foto</label>';
+  if(src){
+    var h='<img src="'+src+'" alt="Foto de la prenda" class="'+(ed.recorte==="working"?"working":"")+'">';
+    if(ed.recorte==="working")h+='<div class="bgwork"><span class="dots"><i></i><i></i><i></i></span><span id="bgMsg">'+esc(textoRecorte(ed))+'</span></div>';
+    else if(ed.recorte==="done"&&ed.original)h+='<button type="button" class="btn bgbtn" data-act="original">Ver original</button>';
+    else if(!ed.png)h+='<button type="button" class="btn bgbtn" data-act="recortar">Quitar fondo</button>';
+    if(ed.recorte==="error")h+='<div class="bgwork" style="color:var(--danger)">No he podido quitar el fondo. Prueba otra vez o con una foto con más luz.</div>';
+    b.innerHTML=h+'<label for="edFile" class="btn change">Cambiar foto</label>';
+  }
   else b.innerHTML='<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><label for="edFile" class="btn primary" tabindex="0">Hacer foto o elegir</label><p class="note" style="text-align:center;max-width:30ch">Mejor sobre un fondo liso. Si la recortas antes en Fotos, queda aún más limpia.</p>';
 }
 function renderColores(){
@@ -690,13 +703,64 @@ function prepararFoto(file){
     img.src=url;
   });
 }
+function setFoto(blob,png){
+  if(ed.preview)URL.revokeObjectURL(ed.preview);
+  ed.blob=blob;ed.png=png;ed.nueva=true;ed.preview=URL.createObjectURL(blob);
+}
 function onFoto(file){
   if(!file||!ed)return;var mine=ed;
   prepararFoto(file).then(function(r){
     if(ed!==mine)return;
-    if(ed.preview)URL.revokeObjectURL(ed.preview);
-    ed.blob=r.blob;ed.png=r.png;ed.nueva=true;ed.preview=URL.createObjectURL(r.blob);renderFoto();analizar(r.blob);
+    ed.original=r.blob;ed.recorte="idle";setFoto(r.blob,r.png);renderFoto();analizar(r.blob);
+    if(!r.png&&lsGet("al_auto_bg",true))recortar();
   }).catch(function(){toast("No he podido abrir esa foto. Prueba con otra.")});
+}
+
+/* ---- quitar el fondo (se hace dentro del iPhone, la foto no sale del móvil) ---- */
+var bgLib=null;
+function cargarRecortador(){
+  if(!bgLib)bgLib=import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm").catch(function(e){bgLib=null;throw e});
+  return bgLib;
+}
+function textoRecorte(e){
+  if(e.fase==="descarga"&&e.pct<100)return "Preparando el recortador (solo la primera vez)… "+e.pct+"%";
+  return "Quitando el fondo…";
+}
+function recortar(){
+  if(!ed||!ed.blob||ed.recorte==="working")return;
+  var mine=ed,src=ed.original||ed.blob;
+  ed.original=src;ed.recorte="working";ed.fase="";ed.pct=0;renderFoto();
+  cargarRecortador().then(function(m){
+    var fn=m.removeBackground||(m.default&&m.default.removeBackground)||m.default;
+    return fn(src,{model:"isnet_quint8",output:{format:"image/png"},progress:function(key,cur,tot){
+      if(ed!==mine||!tot)return;
+      mine.fase=String(key).indexOf("fetch")===0?"descarga":"proceso";
+      mine.pct=Math.min(100,Math.round(cur/tot*100));
+      var el=$("#bgMsg");if(el)el.textContent=textoRecorte(mine);
+    }});
+  }).then(ajustarRecorte).then(function(png){
+    if(ed!==mine)return;setFoto(png,true);ed.recorte="done";renderFoto();
+  }).catch(function(){if(ed!==mine)return;ed.recorte="error";renderFoto()});
+}
+function ajustarRecorte(blob){
+  // Recorta los bordes transparentes para que la prenda ocupe toda la foto.
+  return new Promise(function(res){
+    var url=URL.createObjectURL(blob),img=new Image();
+    img.onload=function(){
+      var w=img.naturalWidth,h=img.naturalHeight,c=document.createElement("canvas");c.width=w;c.height=h;
+      var x=c.getContext("2d");x.drawImage(img,0,0);URL.revokeObjectURL(url);
+      var d=x.getImageData(0,0,w,h).data,minX=w,minY=h,maxX=-1,maxY=-1;
+      for(var y=0;y<h;y+=2)for(var i=0;i<w;i+=2){if(d[(y*w+i)*4+3]>24){if(i<minX)minX=i;if(i>maxX)maxX=i;if(y<minY)minY=y;if(y>maxY)maxY=y}}
+      if(maxX<0){res(blob);return}
+      var pad=Math.round(Math.max(maxX-minX,maxY-minY)*0.04);
+      minX=Math.max(0,minX-pad);minY=Math.max(0,minY-pad);maxX=Math.min(w-1,maxX+pad);maxY=Math.min(h-1,maxY+pad);
+      var cw=maxX-minX+1,ch=maxY-minY+1,k=Math.min(1,1000/Math.max(cw,ch)),o=document.createElement("canvas");
+      o.width=Math.round(cw*k);o.height=Math.round(ch*k);o.getContext("2d").drawImage(c,minX,minY,cw,ch,0,0,o.width,o.height);
+      o.toBlob(function(b){res(b||blob)},"image/png");
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);res(blob)};
+    img.src=url;
+  });
 }
 function analizar(blob){
   var s=$("#aiStatus");s.hidden=false;
@@ -792,6 +856,8 @@ document.addEventListener("click",function(e){
     case "borrar":ed.borrar=true;renderBorrar();break;
     case "noborrar":ed.borrar=false;renderBorrar();break;
     case "siborrar":borrar();break;
+    case "recortar":recortar();break;
+    case "original":if(ed&&ed.original){setFoto(ed.original,false);ed.recorte="idle";renderFoto()}break;
     case "edcolor":var k=COLORES.filter(function(c){return c[0]===v})[0];ed.color=k[0];ed.colorHex=k[1];ed.colorBy="tu";renderColores();break;
     case "faltan":pedirFaltan();break;
     case "sel":pedirIdeas(a.dataset.id);break;
@@ -810,6 +876,7 @@ document.addEventListener("input",function(e){
 document.addEventListener("change",function(e){
   if(e.target.id==="edFile"){onFoto(e.target.files&&e.target.files[0]);e.target.value=""}
   else if(e.target.id==="edCustom"&&ed)renderColores();
+  else if(e.target.id==="autoBg"){lsSet("al_auto_bg",e.target.checked)}
   else if(e.target.id==="impFile"){importar(e.target.files&&e.target.files[0]);e.target.value=""}
 });
 document.addEventListener("keydown",function(e){
