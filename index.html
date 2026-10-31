@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Armario Lino</title>
+<meta name="description" content="Tu armario virtual con IA">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Armario">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#EFEDE8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=DM+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: una columna de móvil (máx. 560px), secciones apiladas, barra de pestañas fija abajo, hoja inferior para editar prendas. */
+:root{
+  --bg:#EFEDE8; --surface:#F8F7F3; --tile:#E3DED4; --ink:#1C1B19; --muted:#67635B; --line:#D6D0C4;
+  --accent:#4E5D2F; --accent-soft:#E3E6D6; --on-ink:#F8F7F3; --danger:#9A3324; --scrim:rgba(28,27,25,.42);
+  --display:'Bodoni Moda', Didot, 'Times New Roman', Georgia, serif;
+  --body:'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#151412; --surface:#1F1E1B; --tile:#2A2824; --ink:#EFEDE8; --muted:#A39E94; --line:#36332E;
+  --accent:#B8C48F; --accent-soft:#2C3122; --on-ink:#151412; --danger:#E08A78; --scrim:rgba(0,0,0,.6); color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{background:var(--bg);margin:0}
+body{color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+img{max-width:100%}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app{max-width:560px;margin:0 auto;padding-top:calc(20px + env(safe-area-inset-top,0px));padding-bottom:calc(110px + env(safe-area-inset-bottom,0px))}
+.view{display:flex;flex-direction:column;gap:22px}
+.eyebrow{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.display{margin:0;font-family:var(--display);font-weight:500;font-size:40px;line-height:1.02;text-wrap:balance}
+.display.md{font-size:36px}
+.display.sm{font-size:26px;line-height:1.1}
+.label{margin:0;font-size:14px;font-weight:500;color:var(--muted)}
+.muted{color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center}
+.between{justify-content:space-between}
+.block{display:flex;flex-direction:column;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-right:calc(-1 * max(16px, env(safe-area-inset-right,0px)));padding-right:16px}
+.chips.scroll::-webkit-scrollbar{display:none}
+.chip{flex:none;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:transparent;cursor:pointer;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.chip small{font-size:12px;color:var(--muted);font-weight:400}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.chip[aria-pressed="true"] small{color:var(--on-ink);opacity:.75}
+.chip.sm{min-height:36px;border-radius:10px;padding:0 12px;font-size:13px}
+.field{width:100%;height:48px;padding:0 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font-size:16px}
+select.field{padding:0 10px}
+.btn{min-height:50px;padding:0 20px;border-radius:999px;border:1px solid var(--ink);background:transparent;font-size:15px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--on-ink)}
+.btn.wide{width:100%}
+.btn.flex{flex:1}
+.btn.small{min-height:38px;padding:0 14px;font-size:13px}
+.btn.danger{border-color:transparent;color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:default}
+.iconbtn{width:44px;height:44px;flex:none;border-radius:999px;border:1px solid var(--line);background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink)}
+.panel{background:var(--surface);border-radius:24px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.note{margin:0;font-size:14px;color:var(--muted)}
+.ai-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;white-space:nowrap}
+.thinking{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+.dots{display:inline-flex;gap:4px}.dots i{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:b 1s infinite ease-in-out}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.dots i{animation:none;opacity:.7}}
+
+.ph{position:relative;border-radius:16px;background:var(--tile);overflow:hidden;aspect-ratio:1/1.05;max-width:100%;display:flex;align-items:center;justify-content:center}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph img.cut{object-fit:contain;padding:8%}
+.ph svg{width:58%;height:58%}
+.sil path{stroke:var(--ink);stroke-width:.9;stroke-linejoin:round}
+
+.weather{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border-radius:18px;padding:12px 14px}
+.weather b{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.weather span{font-size:13px;color:var(--muted)}
+.look-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.look-grid figure{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.look-grid figcaption{font-size:13px;font-weight:500;line-height:1.3}
+.look-grid figcaption span{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.why{display:flex;flex-direction:column;gap:4px}
+.why p{margin:0}
+.why .eyebrow{color:var(--accent);font-weight:600}
+.hist{display:flex;flex-direction:column}
+.hist div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.hist div > span:last-child{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.search{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.search input{flex:1;min-width:0;border:none;background:transparent;font-size:16px;outline:none}
+.search:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.frow{display:flex;align-items:center;gap:8px;min-width:0}
+.frow > .label{width:52px;flex:none;font-size:13px}
+.frow .chips{flex:1;min-width:0}
+.sw{width:44px;height:44px;flex:none;border:none;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.sw span{width:26px;height:26px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14)}
+.sw[aria-pressed="true"] span{box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px var(--ink)}
+.sw.all span{background:conic-gradient(#C19A6B,#2F3E5C,#6F7D4E,#B23A32,#E8C547,#C19A6B)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 12px}
+@media (min-width:520px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.card{display:flex;flex-direction:column;gap:6px;text-align:left;border:none;background:transparent;padding:0;cursor:pointer;min-width:0}
+.card b{font-weight:500;font-size:14px;line-height:1.3}
+.card small{font-size:12px;color:var(--muted)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:36px 20px;border:1.5px dashed var(--line);border-radius:24px}
+.empty p{margin:0;max-width:32ch}
+.fab{position:fixed;right:calc(max(16px, env(safe-area-inset-right,0px)) + 4px);bottom:calc(92px + env(safe-area-inset-bottom,0px));width:60px;height:60px;border-radius:50%;border:none;background:var(--accent);color:var(--bg);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(0,0,0,.25);cursor:pointer;z-index:5}
+.fab svg{width:26px;height:26px}
+
+.thumbs{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:3px}
+.thumbs::-webkit-scrollbar{display:none}
+.thumb{width:68px;height:68px;flex:none;border-radius:16px;border:2px solid transparent;background:var(--tile);padding:0;overflow:hidden;cursor:pointer}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb img.cut{object-fit:contain;padding:6px}
+.thumb svg{width:60%;height:60%}
+.thumb[aria-pressed="true"]{border-color:var(--ink)}
+.ideas{display:flex;flex-direction:column;gap:10px}
+.idea{background:var(--surface);border-radius:18px;padding:10px;display:flex;align-items:center;gap:12px}
+.idea .ph{width:72px;flex:none;aspect-ratio:1}
+.idea .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.idea .txt b{font-weight:600;font-size:15px}
+.idea .txt span{font-size:13px;color:var(--muted);line-height:1.35}
+.gap-card{background:var(--accent-soft);border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.gap-title{margin:0;color:var(--accent);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px}
+
+.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.steps a{color:var(--accent);font-weight:600}
+.keyrow{display:flex;gap:8px}
+.keyrow input{flex:1;min-width:0}
+
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);
+  padding:6px max(16px, env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px, env(safe-area-inset-left,0px))}
+.tabbar div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.tab{min-height:52px;border:none;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer}
+.tab svg{width:24px;height:24px}
+.tab[aria-current="page"]{color:var(--ink);font-weight:600}
+
+.sheet-wrap{position:fixed;inset:0;z-index:20;background:var(--scrim);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:560px;max-height:calc(100% - env(safe-area-inset-top,0px) - 12px);overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--bg);border-radius:26px 26px 0 0;
+  padding:18px max(18px, env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(18px, env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:16px}
+.photo-box{position:relative;border-radius:22px;background:var(--tile);min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;overflow:hidden;padding:12px}
+.photo-box img{width:100%;max-height:300px;object-fit:contain;display:block}
+.photo-box .change{position:absolute;right:10px;bottom:10px;min-height:38px;padding:0 14px;font-size:13px;background:var(--surface);border-color:var(--line)}
+.fieldlbl{display:flex;flex-direction:column;gap:6px}
+.fieldlbl > span{font-size:13px;color:var(--muted)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+fieldset{margin:0;padding:0;border:none;display:flex;flex-direction:column;gap:6px;min-width:0}
+legend{padding:0;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+legend b{color:var(--ink);font-weight:600}
+.swatches{display:flex;flex-wrap:wrap}
+.custom-color{position:relative;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center}
+.custom-color span{width:26px;height:26px;border-radius:50%;border:1.5px dashed var(--muted);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted)}
+.custom-color input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.confirm{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:16px;border:1px solid var(--danger)}
+.confirm p{margin:0;font-size:14px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--ink);color:var(--on-ink);padding:10px 18px;border-radius:999px;font-size:14px;max-width:calc(100% - 32px);text-align:center}
+.install{display:flex;flex-direction:column;gap:8px;background:var(--accent-soft);border-radius:18px;padding:14px 16px;font-size:14px}
+.install p{margin:0}
+</style>
+</head>
+<body>
+<div class="app">
+  <main id="v-hoy" class="view" aria-labelledby="h-hoy"></main>
+  <main id="v-armario" class="view" aria-labelledby="h-armario" hidden></main>
+  <main id="v-comprar" class="view" aria-labelledby="h-comprar" hidden></main>
+  <main id="v-ajustes" class="view" aria-labelledby="h-ajustes" hidden></main>
+</div>
+
+<button id="fab" class="fab" data-act="nueva" aria-label="Añadir prenda con una foto" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+</button>
+
+<nav class="tabbar" aria-label="Secciones"><div>
+  <button class="tab" data-tab="hoy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Hoy</button>
+  <button class="tab" data-tab="armario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7a2 2 0 1 1 2 2c-1 0-2 .8-2 2v1M12 12 3 19h18z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Armario</button>
+  <button class="tab" data-tab="comprar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 12H6.2zM9 8a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Comprar</button>
+  <button class="tab" data-tab="ajustes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Ajustes</button>
+</div></nav>
+
+<div id="sheet" class="sheet-wrap" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="row between">
+      <h2 id="sheetTitle" class="display sm">Nueva prenda</h2>
+      <button class="iconbtn" data-act="cerrar" aria-label="Cerrar"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="photo-box" id="photoBox"></div>
+    <input type="file" id="edFile" accept="image/*" class="sr" aria-label="Foto de la prenda">
+    <p id="aiStatus" class="note" hidden></p>
+    <label class="fieldlbl"><span>Nombre</span><input id="edNombre" class="field" placeholder="Ej. Chaqueta vaquera azul" autocomplete="off"></label>
+    <div class="two">
+      <label class="fieldlbl"><span>Tipo</span><select id="edTipo" class="field"></select></label>
+      <label class="fieldlbl"><span>Marca</span><input id="edMarca" class="field" placeholder="Opcional" autocomplete="off"></label>
+    </div>
+    <fieldset>
+      <legend>Color: <b id="edColorName">Sin elegir</b> <span id="edColorBy"></span></legend>
+      <div class="swatches" id="edSwatches"></div>
+    </fieldset>
+    <div class="two">
+      <label class="fieldlbl"><span>Estilo</span><select id="edEstilo" class="field"></select></label>
+      <label class="fieldlbl"><span>Temporada</span><select id="edTemporada" class="field"></select></label>
+    </div>
+    <button class="btn primary wide" id="btnGuardar" data-act="guardar">Guardar prenda</button>
+    <div id="delZone"></div>
+  </div>
+</div>
+
+<input type="file" id="impFile" accept="application/json,.json" class="sr" aria-label="Archivo de copia de seguridad">
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+(function(){
+"use strict";
+/* ================= catálogos ================= */
+var TIPOS=["Camiseta","Camisa","Jersey","Sudadera","Chaqueta","Abrigo","Pantalón","Falda","Vestido","Zapatos","Calcetines","Calzoncillos","Gorra","Complemento"];
+var PLURAL={Camiseta:"Camisetas",Camisa:"Camisas",Jersey:"Jerséis",Sudadera:"Sudaderas",Chaqueta:"Chaquetas",Abrigo:"Abrigos","Pantalón":"Pantalones",Falda:"Faldas",Vestido:"Vestidos",Zapatos:"Zapatos",Calcetines:"Calcetines",Calzoncillos:"Calzoncillos",Gorra:"Gorras",Complemento:"Complementos"};
+var ORDEN=["Abrigo","Chaqueta","Sudadera","Jersey","Camisa","Camiseta","Vestido","Falda","Pantalón","Zapatos","Gorra","Complemento","Calcetines","Calzoncillos"];
+var ESTILOS=["Básico","Casual","Formal","Deportivo","Fiesta"];
+var TEMPORADAS=["Todo el año","Primavera/Verano","Otoño/Invierno"];
+var COLORES=[["Blanco","#F7F6F2"],["Crudo","#E9E1CF"],["Beige","#D9C8A9"],["Camel","#C19A6B"],["Marrón","#6A4630"],["Negro","#232220"],["Gris","#8C8A86"],["Azul marino","#2F3E5C"],["Azul","#4F78B5"],["Celeste","#A9C4F5"],["Verde","#6F7D4E"],["Rojo","#B23A32"],["Granate","#7E2E2E"],["Rosa","#E8A6B8"],["Amarillo","#E8C547"],["Naranja","#D9793A"],["Morado","#6E4F8A"]];
+var TIEMPOS=[["Frío","menos de 10°"],["Fresco","10–17°"],["Templado","18–24°"],["Calor","más de 25°"]];
+var PLANES=["Trabajo","Clase","Cena","Cita","Fiesta","Deporte","Relax","Viaje"];
+var SIL={
+  tee:"M11 4 L7 6 L3 11 L7 14 L9 12 L9 28 L23 28 L23 12 L25 14 L29 11 L25 6 L21 4 C20 6 18 7 16 7 C14 7 12 6 11 4 Z",
+  shirt:"M11 4 L7 6 L3 11 L7 14 L9 12 L9 28 L23 28 L23 12 L25 14 L29 11 L25 6 L21 4 L16 9 Z M16 9 V28",
+  pants:"M9 3 H23 L25 29 H19 L16 12 L13 29 H7 Z",
+  jacket:"M11 3 L6 5 L3 27 H8 L9 13 V29 H23 V13 L24 27 H29 L26 5 L21 3 L16 10 Z M16 10 V29",
+  coat:"M11 2 L6 4 L3 26 H8 L9 12 V30 H23 V12 L24 26 H29 L26 4 L21 2 L16 12 Z M16 12 V30",
+  skirt:"M10 5 H22 L27 28 H5 Z",
+  dress:"M12 3 H20 L19 9 L26 29 H6 L13 9 Z",
+  shoe:"M3 20 C3 16 5 14 8 14 L12 14 L15 18 C18 20 23 20 26 21 C28 22 29 24 29 26 H3 Z",
+  sock:"M11 3 H18 V17 L25 21 C27 22 27 27 23 27 L13 25 C11 24 11 22 11 20 Z",
+  brief:"M5 9 H27 V14 C22 15 19 19 18 24 H14 C13 19 10 15 5 14 Z",
+  cap:"M5 21 C5 13 10 9 16 9 C22 9 27 13 27 21 Z M27 21 H31 V23 H5 V21",
+  bag:"M6 11 H26 L24 28 H8 Z M11 11 C11 5 21 5 21 11"
+};
+var SIL_TIPO={Camiseta:"tee",Jersey:"tee",Sudadera:"tee",Camisa:"shirt",Chaqueta:"jacket",Abrigo:"coat","Pantalón":"pants",Falda:"skirt",Vestido:"dress",Zapatos:"shoe",Calcetines:"sock",Calzoncillos:"brief",Gorra:"cap",Complemento:"bag"};
+
+/* ================= utilidades ================= */
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function safeHex(h){return /^#[0-9a-fA-F]{6}$/.test(String(h||""))?h:"#B9B3A8"}
+function nuevoId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function sil(tipo,hex){var d=SIL[SIL_TIPO[tipo]]||SIL.tee;return '<svg class="sil" viewBox="0 0 32 32" aria-hidden="true"><path d="'+d+'" fill="'+safeHex(hex)+'"/></svg>'}
+var urls={};
+function fotoUrl(p){if(!p||!p.blob)return null;if(!urls[p.id])urls[p.id]=URL.createObjectURL(p.blob);return urls[p.id]}
+function soltarUrl(id){if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}}
+function foto(p){var u=fotoUrl(p);return u?'<img src="'+u+'" alt="" class="'+(p.png?"cut":"")+'">':sil(p&&p.tipo,p&&p.colorHex)}
+function lsGet(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function lsDel(k){try{localStorage.removeItem(k)}catch(e){}}
+function hoyTexto(){var t=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});return t.charAt(0).toUpperCase()+t.slice(1)}
+function tiempoPorMes(){var m=new Date().getMonth();if(m===11||m<=1)return "Frío";if(m>=5&&m<=8)return "Calor";if(m===4||m===9)return "Templado";return "Fresco"}
+function hace(iso){if(!iso)return "";var a=new Date();a.setHours(0,0,0,0);var b=new Date(iso);b.setHours(0,0,0,0);var d=Math.round((a-b)/864e5);if(d<=0)return "hoy";if(d===1)return "ayer";return "hace "+d+" días"}
+var toastT;
+function toast(msg){var t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){t.hidden=true},2800)}
+
+/* ================= almacenamiento en el iPhone (IndexedDB) ================= */
+var idb=null;
+function abrirDB(){return new Promise(function(res,rej){
+  var r=indexedDB.open("armario-lino",1);
+  r.onupgradeneeded=function(){var d=r.result;if(!d.objectStoreNames.contains("prendas"))d.createObjectStore("prendas",{keyPath:"id"});if(!d.objectStoreNames.contains("looks"))d.createObjectStore("looks",{keyPath:"id"})};
+  r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)};
+})}
+function tx(store,mode,fn){return new Promise(function(res,rej){
+  var t=idb.transaction(store,mode),s=t.objectStore(store),req=fn(s);
+  t.oncomplete=function(){res(req&&"result" in req?req.result:undefined)};
+  t.onerror=function(){rej(t.error)};t.onabort=function(){rej(t.error)};
+})}
+function todos(store){return tx(store,"readonly",function(s){return s.getAll()})}
+function guardarObj(store,o){return tx(store,"readwrite",function(s){return s.put(o)})}
+function borrarObj(store,id){return tx(store,"readwrite",function(s){return s.delete(id)})}
+
+/* ================= IA (Gemini) ================= */
+var API="https://generativelanguage.googleapis.com/v1beta";
+function clave(){return lsGet("al_key","")}
+function hayIA(){return !!clave()}
+function modelos(){
+  var c=lsGet("al_models",null);
+  if(c&&c.k===clave().slice(-6)&&Date.now()-c.t<3*864e5&&c.list.length)return Promise.resolve(c.list);
+  return fetch(API+"/models?pageSize=200",{headers:{"x-goog-api-key":clave()}}).then(function(r){
+    if(r.status===400||r.status===401||r.status===403)throw {code:"clave"};
+    if(!r.ok)throw {code:"red"};return r.json();
+  }).then(function(j){
+    var ver=function(n){var m=n.match(/gemini-(\d+(?:\.\d+)?)/);return m?parseFloat(m[1]):0};
+    var ok=(j.models||[]).filter(function(m){return (m.supportedGenerationMethods||[]).indexOf("generateContent")>=0}).map(function(m){return m.name.replace(/^models\//,"")});
+    var flash=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash$/.test(n)}).sort(function(a,b){return ver(b)-ver(a)});
+    var lite=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash-lite$/.test(n)}).sort(function(a,b){return ver(b)-ver(a)});
+    var latest=ok.filter(function(n){return /^gemini-flash-latest$/.test(n)});
+    var list=flash.concat(latest,lite).slice(0,5);
+    if(!list.length)list=["gemini-flash-latest","gemini-2.5-flash","gemini-2.0-flash"];
+    lsSet("al_models",{k:clave().slice(-6),t:Date.now(),list:list});return list;
+  });
+}
+function blobA64(blob){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(String(fr.result).split(",")[1])};fr.onerror=rej;fr.readAsDataURL(blob)})}
+function leerJSON(t){
+  t=String(t||"").trim();
+  try{return JSON.parse(t)}catch(e){}
+  var m=t.match(/```(?:json)?\s*([\s\S]*?)```/);if(m){try{return JSON.parse(m[1])}catch(e){}}
+  var a=t.search(/[\[{]/),b=Math.max(t.lastIndexOf("}"),t.lastIndexOf("]"));
+  if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1))}catch(e){}}
+  throw {code:"json"};
+}
+function preguntarIA(prompt,imagen,signal){
+  if(!hayIA())return Promise.reject({code:"sin_clave"});
+  var partsP=imagen?blobA64(imagen).then(function(d){return [{text:prompt},{inline_data:{mime_type:imagen.type||"image/jpeg",data:d}}]}):Promise.resolve([{text:prompt}]);
+  return Promise.all([modelos(),partsP]).then(function(r){
+    var list=r[0],parts=r[1],i=0;
+    function intento(){
+      var m=list[i];
+      return fetch(API+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal,
+        headers:{"Content-Type":"application/json","x-goog-api-key":clave()},
+        body:JSON.stringify({contents:[{role:"user",parts:parts}],generationConfig:{responseMimeType:"application/json",temperature:0.9}})
+      }).then(function(res){
+        if((res.status===404||res.status===429||res.status===503)&&i<list.length-1){i++;return intento()}
+        if(res.status===400||res.status===401||res.status===403){return res.text().then(function(t){throw {code:/API key|API_KEY|permission/i.test(t)?"clave":"peticion"}})}
+        if(res.status===429)throw {code:"limite"};
+        if(!res.ok)throw {code:"red"};
+        return res.json();
+      });
+    }
+    return intento();
+  }).then(function(j){
+    if(j&&j.code)return j;
+    var c=j&&j.candidates&&j.candidates[0];
+    var t=c&&c.content&&c.content.parts?c.content.parts.map(function(p){return p.text||""}).join(""):"";
+    if(!t)throw {code:"vacio"};
+    return leerJSON(t);
+  }).catch(function(e){
+    if(e&&e.name==="AbortError")throw {code:"cancelado"};
+    if(e&&e.code)throw e;
+    throw {code:"red"};
+  });
+}
+function iaErr(e){var c=e&&e.code;
+  if(c==="cancelado")return "";
+  if(c==="sin_clave")return "Conecta la IA en Ajustes para usar esta función.";
+  if(c==="clave")return "La clave de Gemini no funciona. Revísala en Ajustes.";
+  if(c==="limite")return "Has llegado al límite gratuito de la IA por ahora. Prueba en un rato.";
+  if(c==="json"||c==="vacio")return "La respuesta de la IA no salió bien. Pulsa otra vez.";
+  if(c==="peticion")return "La IA no ha podido procesar esto. Prueba otra vez o con otra foto.";
+  return navigator.onLine===false?"No tienes conexión a internet ahora mismo.":"No se pudo conectar con la IA. Prueba otra vez en un momento.";
+}
+
+/* ================= tiempo (Open-Meteo, gratis y sin clave) ================= */
+function rangoDe(t){return TIEMPOS.filter(function(x){return x[0]===t})[0][1]}
+function cargarTiempo(pedido){
+  if(!navigator.geolocation){if(pedido)toast("Este móvil no permite saber la ubicación.");return}
+  st.meteoState="loading";render();
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var u="https://api.open-meteo.com/v1/forecast?latitude="+pos.coords.latitude.toFixed(3)+"&longitude="+pos.coords.longitude.toFixed(3)+
+      "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&current=temperature_2m&timezone=auto&forecast_days=1";
+    fetch(u).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){
+      var max=Math.round(d.daily.temperature_2m_max[0]),min=Math.round(d.daily.temperature_2m_min[0]);
+      var pp=d.daily.precipitation_probability_max?d.daily.precipitation_probability_max[0]:0;
+      var now=d.current&&d.current.temperature_2m!=null?Math.round(d.current.temperature_2m):null;
+      st.meteo={max:max,min:min,pp:pp||0,now:now};
+      st.tiempo=max<10?"Frío":max<18?"Fresco":max<25?"Templado":"Calor";
+      st.lluvia=(pp||0)>=50;st.meteoState="ok";lsSet("al_geo",true);render();
+    }).catch(function(){st.meteoState="error";render()});
+  },function(err){
+    st.meteoState=err&&err.code===1?"denegado":"error";if(err&&err.code===1)lsDel("al_geo");render();
+  },{timeout:12000,maximumAge:30*60*1000});
+}
+
+/* ================= estado ================= */
+var prendas=[], looks=[], listo=false;
+var st={
+  tab:"hoy", cat:"Todo", color:"", marca:"", q:"",
+  tiempo:tiempoPorMes(), lluvia:false, meteo:null, meteoState:"idle",
+  plan:lsGet("al_plan","Trabajo"), detalle:"",
+  look:null, lookState:"idle", lookMsg:"", previas:[],
+  sel:null, ideas:null, ideasState:"idle", ideasMsg:"",
+  faltan:null, faltanState:"idle", faltanMsg:"",
+  keyState:"idle", keyMsg:""
+};
+function byId(id){for(var i=0;i<prendas.length;i++)if(prendas[i].id===id)return prendas[i];return null}
+function recargar(){
+  return Promise.all([todos("prendas"),todos("looks")]).then(function(r){
+    prendas=r[0].sort(function(a,b){return String(b.creada||"").localeCompare(String(a.creada||""))});
+    looks=r[1].sort(function(a,b){return String(b.fecha||"").localeCompare(String(a.fecha||""))});
+    listo=true;render();
+  });
+}
+
+/* ================= pantallas ================= */
+var TABS=["hoy","armario","comprar","ajustes"];
+function setTab(t){
+  if(TABS.indexOf(t)<0)t="hoy";
+  st.tab=t;
+  TABS.forEach(function(k){$("#v-"+k).hidden=k!==t});
+  document.querySelectorAll(".tab").forEach(function(b){if(b.dataset.tab===t)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  render();window.scrollTo(0,0);
+}
+function render(){
+  $("#fab").hidden=!(st.tab==="armario"&&prendas.length>0);
+  if(st.tab==="hoy")renderHoy();else if(st.tab==="armario")renderArmario();else if(st.tab==="comprar")renderComprar();else renderAjustes();
+}
+function cargando(t){return '<div class="thinking"><span class="dots"><i></i><i></i><i></i></span>'+esc(t||"Cargando…")+'</div>'}
+function avisoIA(){return '<div class="install"><p><b>Conecta la IA</b> para que te cree looks e ideas de compra. Es gratis y tarda 2 minutos.</p><button class="btn primary small" data-goto="ajustes" style="align-self:flex-start">Conectar en Ajustes</button></div>'}
+function standalone(){return window.navigator.standalone===true||window.matchMedia("(display-mode: standalone)").matches}
+
+function renderHoy(){
+  var v=$("#v-hoy");
+  var h='<header class="block" style="gap:8px"><p class="eyebrow">'+esc(hoyTexto())+'</p><h1 id="h-hoy" class="display">Tu look<br>de hoy</h1></header>';
+  if(!standalone()&&!lsGet("al_hide_install",false)){
+    h+='<div class="install"><p><b>Instálala en tu iPhone:</b> en Safari pulsa <b>Compartir</b> y luego <b>Añadir a pantalla de inicio</b>. Se abrirá a pantalla completa, como una app.</p><button class="btn small" data-act="ocultarInstalar" style="align-self:flex-start">Entendido</button></div>';
+  }
+  h+='<section class="block"><h2 class="label">¿Qué tiempo hace?</h2>';
+  if(st.meteoState==="loading")h+=cargando("Mirando el tiempo de hoy…");
+  else if(st.meteo){var M=st.meteo;h+='<div class="weather"><div><b>'+(M.now!=null?M.now+"°":M.max+"°")+'</b> <span>mín '+M.min+'° · máx '+M.max+'° · lluvia '+M.pp+'%</span></div><button class="btn small" data-act="meteo" aria-label="Actualizar el tiempo">Actualizar</button></div>';}
+  else{
+    if(st.meteoState==="denegado")h+='<p class="note">No tengo permiso para tu ubicación. Elige el tiempo a mano o actívala en Ajustes del iPhone › Safari › Ubicación.</p>';
+    else if(st.meteoState==="error")h+='<p class="note">No he podido consultar el tiempo. Elígelo a mano.</p>';
+    else h+='<button class="btn small" data-act="meteo" style="align-self:flex-start"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21zM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Usar el tiempo de mi ubicación</button>';
+  }
+  h+='<div class="chips">';
+  TIEMPOS.forEach(function(t){h+='<button class="chip" data-act="tiempo" data-v="'+t[0]+'" aria-pressed="'+(st.tiempo===t[0])+'">'+t[0]+' <small>'+t[1]+'</small></button>'});
+  h+='<button class="chip" data-act="lluvia" aria-pressed="'+st.lluvia+'"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 15h10a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 15zM8 18l-1 3M12 18l-1 3M16 18l-1 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Llueve</button>';
+  h+='</div></section>';
+  h+='<section class="block"><h2 class="label">¿Qué tienes hoy?</h2><div class="chips">';
+  PLANES.forEach(function(p){h+='<button class="chip" data-act="plan" data-v="'+p+'" aria-pressed="'+(st.plan===p)+'">'+p+'</button>'});
+  h+='</div><label for="detalle" class="sr">Detalles del día</label><input id="detalle" class="field" placeholder="Detalles (opcional): reunión a las 10 y cena…" value="'+esc(st.detalle)+'" autocomplete="off"></section>';
+
+  if(!listo)h+=cargando("Abriendo tu armario…");
+  else{
+    var arriba=prendas.filter(function(p){return ["Camiseta","Camisa","Jersey","Sudadera","Vestido"].indexOf(p.tipo)>=0}).length;
+    var abajo=prendas.filter(function(p){return ["Pantalón","Falda","Vestido"].indexOf(p.tipo)>=0}).length;
+    if(arriba===0||abajo===0){
+      h+='<div class="empty"><p class="display sm">Primero, tu armario</p><p class="muted">Añade al menos una parte de arriba, una de abajo y unos zapatos para que pueda crear tus looks.</p><button class="btn primary" data-goto="armario">Ir al armario</button></div>';
+    } else if(!hayIA()){h+=avisoIA()}
+    else{
+      h+='<button class="btn primary wide" data-act="crear"'+(st.lookState==="loading"?" disabled":"")+'>'+(st.look?"Crear otro look":"Crear mi look")+'</button>';
+      h+=lookHTML();
+    }
+  }
+  if(looks.length){
+    h+='<section class="block"><h2 class="label">Llevado últimamente</h2><div class="hist">';
+    looks.slice(0,5).forEach(function(l){h+='<div><span>'+esc(l.titulo||"Look")+' <span class="muted">· '+esc(l.plan||"")+'</span></span><span>'+esc(hace(l.fecha))+'</span></div>'});
+    h+='</div></section>';
+  }
+  v.innerHTML=h;
+}
+function lookHTML(){
+  if(st.lookState==="loading")return '<div class="panel">'+cargando("Pensando tu look para "+st.plan.toLowerCase()+"… puede tardar unos segundos.")+'</div>';
+  if(st.lookState==="error")return '<p class="note">'+esc(st.lookMsg)+'</p>';
+  var L=st.look;if(!L)return "";
+  var items=L.prendas.map(byId).filter(Boolean).sort(function(a,b){return ORDEN.indexOf(a.tipo)-ORDEN.indexOf(b.tipo)});
+  var h='<article class="panel"><div class="row between" style="align-items:flex-start"><h3 class="display sm">'+esc(L.titulo||"Tu look")+'</h3><span class="ai-badge">'+esc(L.plan)+' · '+esc(L.tiempo)+'</span></div><div class="look-grid">';
+  items.forEach(function(p){h+='<figure><div class="ph">'+foto(p)+'</div><figcaption>'+esc(p.nombre)+'<span>'+esc([p.marca,p.color].filter(Boolean).join(" · "))+'</span></figcaption></figure>'});
+  h+='</div><div class="why"><p class="eyebrow">Por qué funciona</p><p>'+esc(L.porQue)+'</p>';
+  if(L.consejo)h+='<p class="muted" style="font-size:14px">'+esc(L.consejo)+'</p>';
+  h+='</div>';
+  if(L.falta)h+='<div class="block" style="gap:6px"><p class="note">Te falta: '+esc(L.falta)+'</p><button class="btn small" data-goto="comprar" style="align-self:flex-start">Ver ideas de compra</button></div>';
+  h+='<div class="row"><button class="btn flex" data-act="otra">Otra propuesta</button><button class="btn primary flex" data-act="ponerse"'+(L.guardado?" disabled":"")+'>'+(L.guardado?"Guardado":"Me lo pongo")+'</button></div></article>';
+  return h;
+}
+
+function filtradas(){
+  var q=st.q.trim().toLowerCase();
+  return prendas.filter(function(p){
+    if(st.cat!=="Todo"&&PLURAL[p.tipo]!==st.cat)return false;
+    if(st.color&&p.color!==st.color)return false;
+    if(st.marca&&(p.marca||"")!==st.marca)return false;
+    if(q&&[p.nombre,p.tipo,p.color,p.marca,p.estilo].join(" ").toLowerCase().indexOf(q)<0)return false;
+    return true;
+  });
+}
+function renderArmario(){
+  var v=$("#v-armario");
+  var h='<header class="row between" style="align-items:baseline"><h1 id="h-armario" class="display md">Mi armario</h1><span class="muted">'+prendas.length+' '+(prendas.length===1?"prenda":"prendas")+'</span></header>';
+  if(!listo){v.innerHTML=h+cargando("Abriendo tu armario…");return}
+  if(!prendas.length){
+    h+='<div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M12 7a2 2 0 1 1 2 2c-1 0-2 .8-2 2v1M12 12 3 19h18z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><p class="display sm">Tu armario está vacío</p><p class="muted">Haz una foto a cada prenda. '+(hayIA()?"La IA detecta el tipo, el color y el estilo, y tú puedes corregirlo.":"Si conectas la IA en Ajustes, rellenará los datos por ti.")+'</p><button class="btn primary" data-act="nueva">Añadir mi primera prenda</button></div>';
+    v.innerHTML=h;return;
+  }
+  h+='<label class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="sr">Buscar prenda</span><input id="q" type="search" placeholder="Busca por nombre, color, marca…" value="'+esc(st.q)+'" autocomplete="off"></label>';
+  h+='<div class="chips scroll" role="group" aria-label="Tipo de prenda">';
+  ["Todo"].concat(TIPOS.map(function(t){return PLURAL[t]})).forEach(function(c){h+='<button class="chip" data-act="cat" data-v="'+esc(c)+'" aria-pressed="'+(st.cat===c)+'">'+esc(c)+'</button>'});
+  h+='</div>';
+  var cols={};prendas.forEach(function(p){if(p.color)cols[p.color]=p.colorHex});
+  var nombres=Object.keys(cols);
+  if(nombres.length){
+    h+='<div class="frow"><span class="label">Color</span><div class="chips scroll" style="gap:0" role="group" aria-label="Filtrar por color"><button class="sw all" data-act="color" data-v="" aria-pressed="'+(st.color==="")+'" aria-label="Todos los colores"><span></span></button>';
+    nombres.forEach(function(n){h+='<button class="sw" data-act="color" data-v="'+esc(n)+'" aria-pressed="'+(st.color===n)+'" aria-label="'+esc(n)+'" title="'+esc(n)+'"><span style="background:'+safeHex(cols[n])+'"></span></button>'});
+    h+='</div></div>';
+  }
+  var marcas=[];prendas.forEach(function(p){if(p.marca&&marcas.indexOf(p.marca)<0)marcas.push(p.marca)});marcas.sort();
+  if(marcas.length){
+    h+='<div class="frow"><span class="label">Marca</span><div class="chips scroll" role="group" aria-label="Filtrar por marca"><button class="chip sm" data-act="marca" data-v="" aria-pressed="'+(st.marca==="")+'">Todas</button>';
+    marcas.forEach(function(m){h+='<button class="chip sm" data-act="marca" data-v="'+esc(m)+'" aria-pressed="'+(st.marca===m)+'">'+esc(m)+'</button>'});
+    h+='</div></div>';
+  }
+  var list=filtradas();
+  if(!list.length)h+='<p class="note">No hay prendas con estos filtros.</p>';
+  else{
+    h+='<div class="grid">';
+    list.forEach(function(p){h+='<button class="card" data-act="editar" data-id="'+esc(p.id)+'"><div class="ph">'+foto(p)+'</div><b>'+esc(p.nombre)+'</b><small>'+esc([p.marca,p.tipo].filter(Boolean).join(" · "))+'</small></button>'});
+    h+='</div>';
+  }
+  var foco=document.activeElement&&document.activeElement.id==="q";
+  v.innerHTML=h;
+  if(foco){var q=$("#q");q.focus();q.setSelectionRange(q.value.length,q.value.length)}
+}
+
+function ideaHTML(i){
+  var url="https://www.google.com/search?tbm=shop&q="+encodeURIComponent(i.busqueda||i.nombre||"");
+  return '<div class="idea"><div class="ph">'+sil(i.tipo,i.colorHex)+'</div><div class="txt"><b>'+esc(i.nombre)+'</b><span>'+esc(i.porQue)+'</span></div><a class="iconbtn" href="'+esc(url)+'" target="_blank" rel="noopener" aria-label="Buscar '+esc(i.nombre)+' en tiendas"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a></div>';
+}
+function renderComprar(){
+  var v=$("#v-comprar");
+  var h='<header class="block" style="gap:6px"><h1 id="h-comprar" class="display md">Comprar</h1><p class="muted" style="margin:0">Ideas que combinan con lo que ya tienes</p></header>';
+  if(!listo){v.innerHTML=h+cargando();return}
+  if(!prendas.length){v.innerHTML=h+'<div class="empty"><p class="muted">Cuando tengas prendas en tu armario, aquí verás qué te falta y qué combina con cada una.</p><button class="btn primary" data-goto="armario">Ir al armario</button></div>';return}
+  if(!hayIA()){v.innerHTML=h+avisoIA();return}
+  h+='<section class="gap-card"><h2 class="gap-title">Lo que le falta a tu armario</h2>';
+  if(st.faltanState==="loading")h+=cargando("Revisando tu armario…");
+  else if(st.faltanState==="error")h+='<p class="note">'+esc(st.faltanMsg)+'</p>';
+  if(st.faltan&&st.faltanState!=="loading")h+='<div class="ideas">'+st.faltan.map(ideaHTML).join("")+'</div>';
+  if(st.faltanState!=="loading")h+='<button class="btn primary" data-act="faltan">'+(st.faltan?"Analizar otra vez":"Analizar mi armario")+'</button>';
+  h+='</section><section class="block"><h2 class="label">¿Con qué prenda quieres combinar?</h2><div class="thumbs">';
+  prendas.filter(function(p){return ["Calcetines","Calzoncillos"].indexOf(p.tipo)<0}).forEach(function(p){var u=fotoUrl(p);h+='<button class="thumb" data-act="sel" data-id="'+esc(p.id)+'" aria-pressed="'+(st.sel===p.id)+'" aria-label="'+esc(p.nombre)+'">'+(u?'<img src="'+u+'" alt="" class="'+(p.png?"cut":"")+'">':sil(p.tipo,p.colorHex))+'</button>'});
+  h+='</div>';
+  var sp=byId(st.sel);
+  if(!sp)h+='<p class="note">Toca una prenda y te propongo qué comprar para combinarla.</p>';
+  else{
+    h+='<p class="muted" style="margin:0">Combina con tu <b style="color:var(--ink);font-weight:600">'+esc(sp.nombre.toLowerCase())+'</b></p>';
+    if(st.ideasState==="loading")h+=cargando("Buscando combinaciones…");
+    else if(st.ideasState==="error")h+='<p class="note">'+esc(st.ideasMsg)+'</p>';
+    else if(st.ideas)h+='<div class="ideas">'+st.ideas.map(ideaHTML).join("")+'</div>';
+  }
+  h+='</section>';
+  v.innerHTML=h;
+}
+
+function renderAjustes(){
+  var v=$("#v-ajustes"),k=clave();
+  var h='<header><h1 id="h-ajustes" class="display md">Ajustes</h1></header>';
+  h+='<section class="panel"><div class="row between"><h2 class="display sm">Inteligencia artificial</h2>'+(k?'<span class="ai-badge">Conectada</span>':'')+'</div>';
+  if(!k){
+    h+='<p class="note" style="color:var(--ink)">La app usa Gemini, la IA de Google, que es gratis para uso personal. Necesitas una clave:</p><ol class="steps">'+
+      '<li>Abre <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e inicia sesión con tu cuenta de Google.</li>'+
+      '<li>Pulsa <b>Create API key</b> (Crear clave) y cópiala.</li>'+
+      '<li>Pégala aquí abajo y pulsa <b>Guardar</b>.</li></ol>';
+  } else h+='<p class="note">Tu clave está guardada solo en este iPhone. No la compartas con nadie.</p>';
+  h+='<label for="keyIn" class="sr">Clave de Gemini</label><div class="keyrow"><input id="keyIn" class="field" type="password" placeholder="'+(k?"••••••••"+esc(k.slice(-4)):"Pega aquí tu clave")+'" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn primary" data-act="guardarClave"'+(st.keyState==="loading"?" disabled":"")+'>Guardar</button></div>';
+  if(st.keyState==="loading")h+=cargando("Comprobando la clave…");
+  else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
+  if(k)h+='<button class="btn danger small" data-act="quitarClave" style="align-self:flex-start">Quitar la clave</button>';
+  h+='</section>';
+  h+='<section class="panel"><h2 class="display sm">Copia de seguridad</h2><p class="note">Tus prendas y fotos se guardan solo en este iPhone. Haz una copia de vez en cuando y guárdala en Archivos o iCloud, por si cambias de móvil o borras Safari.</p>'+
+    '<div class="row" style="flex-wrap:wrap"><button class="btn primary" data-act="exportar"'+(prendas.length?"":" disabled")+'>Hacer copia</button><button class="btn" data-act="importar">Recuperar copia</button></div><p id="bkMsg" class="note" hidden></p></section>';
+  h+='<p class="note" style="text-align:center">'+prendas.length+' prendas · '+looks.length+' looks guardados</p>';
+  v.innerHTML=h;
+}
+
+/* ================= acciones de IA ================= */
+function linea(p){return [p.id,p.tipo,p.nombre,p.color||"-",p.marca||"-",p.estilo||"-",p.temporada||"-",p.ultimoUso?"usada "+hace(p.ultimoUso):"sin usar aún"].join(" | ")}
+function armarioTexto(excluir){return prendas.filter(function(p){return p.id!==excluir}).slice(0,400).map(linea).join("\n")}
+function tiempoTexto(){
+  var t=st.tiempo+" ("+rangoDe(st.tiempo)+")";
+  if(st.meteo)t+=", hoy mínima "+st.meteo.min+"° y máxima "+st.meteo.max+"°, "+st.meteo.pp+"% de probabilidad de lluvia";
+  if(st.lluvia)t+=", y llueve";
+  return t;
+}
+var lookCtl=null;
+function crearLook(otra){
+  if(st.lookState==="loading")return;
+  if(otra&&st.look)st.previas.push(st.look.prendas.join(","));
+  if(!otra)st.previas=[];
+  var rec=looks.slice(0,6).map(function(l){return "- "+hace(l.fecha)+": "+(l.prendas||[]).map(function(id){var p=byId(id);return p?p.nombre:id}).join(", ")}).join("\n");
+  var prompt="Eres un estilista personal con muy buen gusto. Crea UN outfit bonito, coherente y adecuado usando SOLO prendas de este armario.\n\n"+
+    "Plan de hoy: "+st.plan+(st.detalle.trim()?". Detalles: "+st.detalle.trim():"")+"\n"+
+    "Tiempo: "+tiempoTexto()+"\n\n"+
+    "Armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+armarioTexto()+"\n\n"+
+    (rec?"Looks recientes (no los repitas):\n"+rec+"\n\n":"")+
+    (st.previas.length?"Ya propuse estas combinaciones de ids y quiero una claramente distinta:\n"+st.previas.join("\n")+"\n\n":"")+
+    "Reglas:\n- Usa solo ids de la lista, copiados tal cual.\n- Incluye parte de arriba y parte de abajo (o un vestido) y calzado, si los hay.\n- Si hace frío o fresco, o llueve, añade una capa de abrigo adecuada si la hay. Con calor, nada de capas pesadas.\n- Que los colores combinen con armonía y que el estilo encaje con el plan (más formal para trabajo, más arreglado para cena, cita o fiesta, deportivo para deporte, cómodo para relax o viaje).\n- Puedes añadir una gorra o un complemento si suma al look. No incluyas calcetines ni ropa interior.\n- Prioriza prendas que no se han usado recientemente.\n- Si al armario le falta algo importante para este plan o este tiempo, dilo brevemente en \"falta\"; si no, déjalo vacío.\n\n"+
+    "Responde SOLO con este JSON, en español:\n{\"titulo\":\"nombre del look en 2 a 5 palabras\",\"prendas\":[\"id\",\"id\"],\"porQue\":\"2 frases sobre por qué funciona para este plan y este tiempo\",\"consejo\":\"un consejo breve de cómo llevarlo\",\"falta\":\"\"}";
+  st.lookState="loading";render();
+  if(lookCtl)lookCtl.abort();lookCtl=new AbortController();
+  preguntarIA(prompt,null,lookCtl.signal).then(function(r){
+    var ids=(r&&Array.isArray(r.prendas)?r.prendas:[]).map(String).filter(function(id,i,a){return byId(id)&&a.indexOf(id)===i});
+    if(!ids.length)throw {code:"json"};
+    st.look={titulo:String(r.titulo||"Tu look"),prendas:ids,porQue:String(r.porQue||""),consejo:String(r.consejo||""),falta:String(r.falta||""),plan:st.plan,tiempo:st.tiempo+(st.lluvia?" y lluvia":"")};
+    st.lookState="done";
+  }).catch(function(e){st.lookMsg=iaErr(e);st.lookState=st.lookMsg?"error":"idle"}).then(render);
+}
+function ponerse(){
+  var L=st.look;if(!L||L.guardado)return;
+  var ahora=new Date().toISOString();
+  guardarObj("looks",{id:nuevoId(),fecha:ahora,plan:L.plan,tiempo:L.tiempo,titulo:L.titulo,prendas:L.prendas}).then(function(){
+    return Promise.all(L.prendas.map(function(id){var p=byId(id);if(!p)return null;p.ultimoUso=ahora;return guardarObj("prendas",p)}));
+  }).then(function(){L.guardado=true;toast("Look guardado. ¡A por el día!");return recargar()})
+  .catch(function(){toast("No se pudo guardar el look. Prueba otra vez.")});
+}
+function normIdeas(arr){return (Array.isArray(arr)?arr:[]).slice(0,5).map(function(i){return {nombre:String(i.nombre||""),tipo:TIPOS.indexOf(i.tipo)>=0?i.tipo:"Complemento",colorHex:safeHex(i.colorHex),porQue:String(i.porQue||""),busqueda:String(i.busqueda||i.nombre||"")}}).filter(function(i){return i.nombre})}
+function pedirFaltan(){
+  st.faltanState="loading";render();
+  var prompt="Eres estilista personal. Este es mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+armarioTexto()+
+    "\n\nDime entre 3 y 4 prendas o complementos clave que me faltan para poder crear más looks y cubrir planes como trabajo, cena, deporte, frío y calor. Que encajen con el estilo que ya tengo y combinen con muchas de mis prendas. No propongas cosas que ya tengo.\n\n"+
+    "Responde SOLO con JSON, en español:\n{\"faltan\":[{\"nombre\":\"nombre corto\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"colorHex\":\"#RRGGBB\",\"porQue\":\"una frase: por qué la necesito y con qué de mi armario combina\",\"busqueda\":\"texto para buscar en una tienda online\"}]}";
+  preguntarIA(prompt).then(function(r){st.faltan=normIdeas(r&&r.faltan);if(st.faltan.length)st.faltanState="done";else{st.faltanState="error";st.faltanMsg="No he encontrado ideas. Prueba otra vez."}})
+  .catch(function(e){st.faltanMsg=iaErr(e);st.faltanState=st.faltanMsg?"error":"idle"}).then(render);
+}
+var ideasCtl=null;
+function pedirIdeas(id){
+  var p=byId(id);if(!p)return;
+  if(ideasCtl)ideasCtl.abort();
+  st.sel=id;st.ideas=null;st.ideasState="loading";render();
+  ideasCtl=new AbortController();
+  var prompt="Eres estilista personal. Prenda elegida: "+linea(p)+"\n\nResto de mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+(armarioTexto(id)||"(vacío)")+
+    "\n\nPropón 4 prendas o complementos para COMPRAR que combinen muy bien con la prenda elegida y que no tenga ya. Ten en cuenta colores, estilo y temporada, y que también combinen con otras prendas de mi armario.\n\n"+
+    "Responde SOLO con JSON, en español:\n{\"ideas\":[{\"nombre\":\"nombre corto\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"colorHex\":\"#RRGGBB\",\"porQue\":\"una frase sobre por qué combina\",\"busqueda\":\"texto para buscar en una tienda online\"}]}";
+  preguntarIA(prompt,null,ideasCtl.signal).then(function(r){if(st.sel!==id)return;st.ideas=normIdeas(r&&r.ideas);st.ideasState="done"})
+  .catch(function(e){if(st.sel!==id)return;st.ideasMsg=iaErr(e);st.ideasState=st.ideasMsg?"error":"idle"}).then(render);
+}
+function guardarClave(){
+  var val=($("#keyIn").value||"").trim();
+  if(!val){st.keyState="error";st.keyMsg="Pega primero la clave.";render();return}
+  var anterior=clave();
+  lsSet("al_key",val);lsDel("al_models");
+  st.keyState="loading";st.keyMsg="";render();
+  modelos().then(function(){st.keyState="ok";st.keyMsg="¡Listo! La IA está conectada.";})
+  .catch(function(e){
+    if(e&&e.code==="clave"){if(anterior)lsSet("al_key",anterior);else lsDel("al_key");st.keyState="error";st.keyMsg="Esa clave no funciona. Revisa que la hayas copiado entera."}
+    else{st.keyState="ok";st.keyMsg="Clave guardada. No he podido comprobarla ahora (¿sin conexión?)."}
+  }).then(render);
+}
+
+/* ================= editor de prenda ================= */
+var ed=null, edCtl=null;
+function fillSelect(sel,opts,val){sel.innerHTML=opts.map(function(o){return '<option'+(o===val?" selected":"")+'>'+esc(o)+'</option>'}).join("")}
+function abrirEditor(id){
+  var p=id?byId(id):null;
+  ed=p?{id:p.id,blob:p.blob||null,png:!!p.png,nueva:false,preview:null,color:p.color||"",colorHex:p.colorHex||"",colorBy:p.colorBy||"tu",borrar:false}
+      :{id:null,blob:null,png:false,nueva:false,preview:null,color:"",colorHex:"",colorBy:"",borrar:false};
+  $("#sheetTitle").textContent=p?"Editar prenda":"Nueva prenda";
+  $("#edNombre").value=p?p.nombre||"":"";$("#edMarca").value=p?p.marca||"":"";
+  fillSelect($("#edTipo"),TIPOS,p?p.tipo:"Camiseta");fillSelect($("#edEstilo"),ESTILOS,p?p.estilo||"Casual":"Casual");fillSelect($("#edTemporada"),TEMPORADAS,p?p.temporada||"Todo el año":"Todo el año");
+  $("#aiStatus").hidden=true;var b=$("#btnGuardar");b.disabled=false;b.textContent="Guardar prenda";
+  renderFoto();renderColores();renderBorrar();
+  $("#sheet").hidden=false;document.body.style.overflow="hidden";
+}
+function cerrarEditor(){
+  if(edCtl){edCtl.abort();edCtl=null}
+  if(ed&&ed.preview)URL.revokeObjectURL(ed.preview);
+  ed=null;$("#sheet").hidden=true;document.body.style.overflow="";
+}
+function renderFoto(){
+  var src=ed.preview||(ed.id?fotoUrl(byId(ed.id)):null),b=$("#photoBox");
+  if(src)b.innerHTML='<img src="'+src+'" alt="Foto de la prenda"><label for="edFile" class="btn change">Cambiar foto</label>';
+  else b.innerHTML='<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><label for="edFile" class="btn primary" tabindex="0">Hacer foto o elegir</label><p class="note" style="text-align:center;max-width:30ch">Mejor sobre un fondo liso. Si la recortas antes en Fotos, queda aún más limpia.</p>';
+}
+function renderColores(){
+  var conocido=COLORES.some(function(c){return c[0]===ed.color}),h="";
+  COLORES.forEach(function(c){h+='<button type="button" class="sw" data-act="edcolor" data-v="'+esc(c[0])+'" aria-pressed="'+(ed.color===c[0])+'" aria-label="'+esc(c[0])+'" title="'+esc(c[0])+'"><span style="background:'+c[1]+'"></span></button>'});
+  if(ed.color&&!conocido)h+='<button type="button" class="sw" aria-pressed="true" aria-label="'+esc(ed.color)+'" title="'+esc(ed.color)+'"><span style="background:'+safeHex(ed.colorHex)+'"></span></button>';
+  h+='<label class="custom-color" title="Otro color"><span aria-hidden="true">+</span><input type="color" id="edCustom" value="'+safeHex(ed.colorHex||"#888888")+'" aria-label="Elegir otro color"></label>';
+  $("#edSwatches").innerHTML=h;
+  $("#edColorName").textContent=ed.color||"Sin elegir";
+  $("#edColorBy").innerHTML=ed.colorBy==="ia"?'<span class="ai-badge"><svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"/></svg>Detectado por IA</span>':(ed.color&&ed.colorBy==="tu"?'<span class="ai-badge">Elegido por ti</span>':"");
+}
+function renderBorrar(){
+  var z=$("#delZone");
+  if(!ed.id){z.innerHTML="";return}
+  if(!ed.borrar){z.innerHTML='<button class="btn danger wide" data-act="borrar">Eliminar prenda</button>';return}
+  z.innerHTML='<div class="confirm"><p>¿Eliminar esta prenda y su foto? No se puede deshacer.</p><div class="row"><button class="btn flex" data-act="noborrar">Cancelar</button><button class="btn primary flex" style="background:var(--danger);border-color:var(--danger)" data-act="siborrar">Eliminar</button></div></div>';
+}
+function prepararFoto(file){
+  return new Promise(function(res,rej){
+    var url=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){
+      var w=img.naturalWidth,h=img.naturalHeight,k=Math.min(1,1200/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);
+      var c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);URL.revokeObjectURL(url);
+      var png=file.type==="image/png";
+      c.toBlob(function(b){b?res({blob:b,png:png}):rej()},png?"image/png":"image/jpeg",0.86);
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);rej()};
+    img.src=url;
+  });
+}
+function onFoto(file){
+  if(!file||!ed)return;var mine=ed;
+  prepararFoto(file).then(function(r){
+    if(ed!==mine)return;
+    if(ed.preview)URL.revokeObjectURL(ed.preview);
+    ed.blob=r.blob;ed.png=r.png;ed.nueva=true;ed.preview=URL.createObjectURL(r.blob);renderFoto();analizar(r.blob);
+  }).catch(function(){toast("No he podido abrir esa foto. Prueba con otra.")});
+}
+function analizar(blob){
+  var s=$("#aiStatus");s.hidden=false;
+  if(!hayIA()){s.textContent="Rellena los datos de la prenda. Si conectas la IA en Ajustes, lo hará por ti.";return}
+  s.innerHTML='<span class="thinking"><span class="dots"><i></i><i></i><i></i></span>La IA está mirando la prenda…</span>';
+  if(edCtl)edCtl.abort();edCtl=new AbortController();var mine=ed;
+  var prompt="Mira la foto de UNA prenda de ropa o complemento y descríbela para un armario virtual en español.\n"+
+    "Responde SOLO con este JSON:\n{\"nombre\":\"nombre corto, ej. Chaqueta vaquera azul\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"color\":\"color principal, uno de: "+COLORES.map(function(c){return c[0]}).join(", ")+"; si ninguno encaja, otro nombre corto\",\"colorHex\":\"#RRGGBB del color principal\",\"marca\":\"marca solo si se ve claramente en etiqueta o logo; si no, cadena vacía\",\"estilo\":\"uno de: "+ESTILOS.join(", ")+"\",\"temporada\":\"uno de: "+TEMPORADAS.join(", ")+"\"}";
+  preguntarIA(prompt,blob,edCtl.signal).then(function(r){
+    if(ed!==mine||!r)return;
+    if(r.nombre&&!$("#edNombre").value.trim())$("#edNombre").value=String(r.nombre);
+    if(TIPOS.indexOf(r.tipo)>=0)$("#edTipo").value=r.tipo;
+    if(r.marca&&!$("#edMarca").value.trim())$("#edMarca").value=String(r.marca);
+    if(ESTILOS.indexOf(r.estilo)>=0)$("#edEstilo").value=r.estilo;
+    if(TEMPORADAS.indexOf(r.temporada)>=0)$("#edTemporada").value=r.temporada;
+    if(r.color){var k=COLORES.filter(function(c){return c[0].toLowerCase()===String(r.color).toLowerCase()})[0];
+      ed.color=k?k[0]:String(r.color);ed.colorHex=k?k[1]:safeHex(r.colorHex);ed.colorBy="ia";renderColores()}
+    s.textContent="Listo. Revisa los datos y cambia lo que no esté bien.";
+  }).catch(function(e){if(ed!==mine)return;var m=iaErr(e);if(!m){s.hidden=true;return}s.textContent=m});
+}
+function guardar(){
+  if(!ed)return;
+  var tipo=$("#edTipo").value,nombre=$("#edNombre").value.trim()||(tipo+(ed.color?" "+ed.color.toLowerCase():""));
+  if(!ed.id&&!ed.blob){toast("Añade una foto de la prenda.");return}
+  var b=$("#btnGuardar");b.disabled=true;b.textContent="Guardando…";
+  var old=ed.id?byId(ed.id):null,nuevo=!ed.id;
+  var p={id:ed.id||nuevoId(),nombre:nombre,tipo:tipo,marca:$("#edMarca").value.trim(),color:ed.color||"",colorHex:ed.colorHex||"",colorBy:ed.colorBy||"",
+    estilo:$("#edEstilo").value,temporada:$("#edTemporada").value,blob:ed.blob,png:!!ed.png,
+    creada:old&&old.creada||new Date().toISOString(),ultimoUso:old&&old.ultimoUso||null};
+  var cambioFoto=ed.nueva;
+  guardarObj("prendas",p).then(function(){if(cambioFoto)soltarUrl(p.id);cerrarEditor();toast(nuevo?"Prenda añadida a tu armario":"Cambios guardados");pedirPersistencia();return recargar()})
+  .catch(function(e){b.disabled=false;b.textContent="Guardar prenda";toast(e&&e.name==="QuotaExceededError"?"No queda espacio en el iPhone para más fotos.":"No se pudo guardar. Prueba otra vez.")});
+}
+function borrar(){
+  if(!ed||!ed.id)return;var id=ed.id;
+  borrarObj("prendas",id).then(function(){soltarUrl(id);if(st.sel===id){st.sel=null;st.ideas=null}cerrarEditor();toast("Prenda eliminada");return recargar()})
+  .catch(function(){toast("No se pudo eliminar. Prueba otra vez.")});
+}
+function pedirPersistencia(){try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}}
+
+/* ================= copia de seguridad ================= */
+function blobADataURL(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=rej;fr.readAsDataURL(b)})}
+function msgBk(t){var m=$("#bkMsg");if(m){m.hidden=false;m.textContent=t}}
+function exportar(){
+  msgBk("Preparando la copia…");
+  Promise.all(prendas.map(function(p){
+    var o={};Object.keys(p).forEach(function(k){if(k!=="blob")o[k]=p[k]});
+    return (p.blob?blobADataURL(p.blob):Promise.resolve(null)).then(function(d){o.foto=d;return o});
+  })).then(function(lista){
+    var data=JSON.stringify({app:"armario-lino",version:1,fecha:new Date().toISOString(),prendas:lista,looks:looks});
+    var nombre="armario-copia-"+new Date().toISOString().slice(0,10)+".json";
+    var file=new File([data],nombre,{type:"application/json"});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      return navigator.share({files:[file],title:"Copia de mi armario"}).then(function(){msgBk("Copia lista. Guárdala en Archivos o iCloud.")}).catch(function(e){if(e&&e.name==="AbortError")msgBk("");else throw e});
+    }
+    var a=document.createElement("a");a.href=URL.createObjectURL(file);a.download=nombre;document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000);msgBk("Copia descargada: "+nombre);
+  }).catch(function(){msgBk("No se pudo hacer la copia. Prueba otra vez.")});
+}
+function dataURLABlob(d){var p=d.split(","),mime=(p[0].match(/:(.*?);/)||[])[1]||"image/jpeg",bin=atob(p[1]),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:mime})}
+function importar(file){
+  if(!file)return;msgBk("Recuperando…");
+  file.text().then(function(t){
+    var j=JSON.parse(t);if(!j||j.app!=="armario-lino"||!Array.isArray(j.prendas))throw 0;
+    var ops=j.prendas.map(function(o){var p={};Object.keys(o).forEach(function(k){if(k!=="foto")p[k]=o[k]});p.blob=o.foto?dataURLABlob(o.foto):null;return guardarObj("prendas",p)});
+    (j.looks||[]).forEach(function(l){if(l&&l.id)ops.push(guardarObj("looks",l))});
+    return Promise.all(ops).then(function(){return j.prendas.length});
+  }).then(function(n){Object.keys(urls).forEach(soltarUrl);return recargar().then(function(){msgBk(n+" prendas recuperadas.");toast("Copia recuperada")})})
+  .catch(function(){msgBk("Ese archivo no es una copia válida del armario.")});
+}
+
+/* ================= eventos ================= */
+document.addEventListener("click",function(e){
+  var t=e.target.closest("[data-tab]");if(t){location.hash=t.dataset.tab;return}
+  var g=e.target.closest("[data-goto]");if(g){location.hash=g.dataset.goto;return}
+  var a=e.target.closest("[data-act]");if(!a)return;
+  var v=a.dataset.v;
+  switch(a.dataset.act){
+    case "tiempo":st.tiempo=v;render();break;
+    case "lluvia":st.lluvia=!st.lluvia;render();break;
+    case "meteo":cargarTiempo(true);break;
+    case "plan":st.plan=v;lsSet("al_plan",v);render();break;
+    case "crear":crearLook(false);break;
+    case "otra":crearLook(true);break;
+    case "ponerse":ponerse();break;
+    case "cat":st.cat=v;render();break;
+    case "color":st.color=v;render();break;
+    case "marca":st.marca=v;render();break;
+    case "nueva":abrirEditor(null);break;
+    case "editar":abrirEditor(a.dataset.id);break;
+    case "cerrar":cerrarEditor();break;
+    case "guardar":guardar();break;
+    case "borrar":ed.borrar=true;renderBorrar();break;
+    case "noborrar":ed.borrar=false;renderBorrar();break;
+    case "siborrar":borrar();break;
+    case "edcolor":var k=COLORES.filter(function(c){return c[0]===v})[0];ed.color=k[0];ed.colorHex=k[1];ed.colorBy="tu";renderColores();break;
+    case "faltan":pedirFaltan();break;
+    case "sel":pedirIdeas(a.dataset.id);break;
+    case "guardarClave":guardarClave();break;
+    case "quitarClave":lsDel("al_key");lsDel("al_models");st.keyState="idle";st.keyMsg="Clave eliminada.";render();break;
+    case "exportar":exportar();break;
+    case "importar":$("#impFile").click();break;
+    case "ocultarInstalar":lsSet("al_hide_install",true);render();break;
+  }
+});
+document.addEventListener("input",function(e){
+  if(e.target.id==="detalle")st.detalle=e.target.value;
+  else if(e.target.id==="q"){st.q=e.target.value;renderArmario()}
+  else if(e.target.id==="edCustom"&&ed){ed.colorHex=e.target.value;ed.color="Personalizado";ed.colorBy="tu";$("#edColorName").textContent="Personalizado"}
+});
+document.addEventListener("change",function(e){
+  if(e.target.id==="edFile"){onFoto(e.target.files&&e.target.files[0]);e.target.value=""}
+  else if(e.target.id==="edCustom"&&ed)renderColores();
+  else if(e.target.id==="impFile"){importar(e.target.files&&e.target.files[0]);e.target.value=""}
+});
+document.addEventListener("keydown",function(e){
+  if(e.key==="Escape"&&!$("#sheet").hidden)cerrarEditor();
+  if((e.key==="Enter"||e.key===" ")&&e.target.matches&&e.target.matches('label[for="edFile"]')){e.preventDefault();$("#edFile").click()}
+});
+$("#sheet").addEventListener("click",function(e){if(e.target.id==="sheet")cerrarEditor()});
+window.addEventListener("hashchange",function(){setTab(location.hash.slice(1))});
+
+/* ================= arranque ================= */
+setTab(location.hash.slice(1)||"hoy");
+abrirDB().then(function(d){idb=d;return recargar()}).catch(function(){
+  listo=true;render();toast("No se pudo abrir el almacenamiento del iPhone. Revisa que no estés en navegación privada.");
+});
+if(lsGet("al_geo",false))cargarTiempo(false);
+if("serviceWorker" in navigator)window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})});
+})();
+</script>
+</body>
+</html>
