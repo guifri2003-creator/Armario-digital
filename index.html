@@ -117,6 +117,14 @@ select.field{padding:0 10px}
 .empty p{margin:0;max-width:32ch}
 .fab{position:fixed;right:calc(max(16px, env(safe-area-inset-right,0px)) + 4px);bottom:calc(92px + env(safe-area-inset-bottom,0px));width:60px;height:60px;border-radius:50%;border:none;background:var(--accent);color:var(--bg);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(0,0,0,.25);cursor:pointer;z-index:5}
 .fab svg{width:26px;height:26px}
+.lote{display:flex;flex-direction:column;max-height:340px;overflow-y:auto}
+.litem{display:flex;align-items:center;gap:12px;padding:8px 0;border:none;border-top:1px solid var(--line);background:transparent;text-align:left;width:100%;cursor:default}
+button.litem{cursor:pointer}
+.lthumb{width:44px;height:44px;flex:none;border-radius:10px;background:var(--tile);overflow:hidden;display:block}
+.lthumb img{width:100%;height:100%;object-fit:contain;display:block}
+.ltxt{flex:1;min-width:0;display:flex;flex-direction:column}
+.ltxt b{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltxt small{font-size:12px;color:var(--muted)}
 
 .thumbs{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:3px}
 .thumbs::-webkit-scrollbar{display:none}
@@ -220,6 +228,7 @@ legend b{color:var(--ink);font-weight:600}
   </div>
 </div>
 
+<input type="file" id="loteFile" accept="image/*" multiple class="sr" aria-label="Fotos de varias prendas">
 <input type="file" id="impFile" accept="application/json,.json" class="sr" aria-label="Archivo de copia de seguridad">
 <div id="toast" class="toast" role="status" hidden></div>
 
@@ -316,8 +325,9 @@ function leerJSON(t){
   if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1))}catch(e){}}
   throw {code:"json"};
 }
-function preguntarIA(prompt,imagen,signal){
+function preguntarIA(prompt,imagen,signal,temp){
   if(!hayIA())return Promise.reject({code:"sin_clave"});
+  var temperatura=typeof temp==="number"?temp:0.9;
   var partsP=imagen?blobA64(imagen).then(function(d){return [{text:prompt},{inline_data:{mime_type:imagen.type||"image/jpeg",data:d}}]}):Promise.resolve([{text:prompt}]);
   var listaP=modelos().catch(function(e){if(e&&e.code==="clave")throw e;return []});
   return Promise.all([listaP,partsP]).then(function(r){
@@ -328,7 +338,7 @@ function preguntarIA(prompt,imagen,signal){
       var m=list[i];
       return fetch(API+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal,
         headers:{"Content-Type":"application/json","x-goog-api-key":clave()},
-        body:JSON.stringify({contents:[{role:"user",parts:parts}],generationConfig:{responseMimeType:"application/json",temperature:0.9}})
+        body:JSON.stringify({contents:[{role:"user",parts:parts}],generationConfig:{responseMimeType:"application/json",temperature:temperatura}})
       }).then(function(res){
         return res.text().then(function(body){
           var j=null;try{j=JSON.parse(body)}catch(x){}
@@ -499,10 +509,12 @@ function renderArmario(){
   var v=$("#v-armario");
   var h='<header class="row between" style="align-items:baseline"><h1 id="h-armario" class="display md">Mi armario</h1><span class="muted">'+prendas.length+' '+(prendas.length===1?"prenda":"prendas")+'</span></header>';
   if(!listo){v.innerHTML=h+cargando("Abriendo tu armario…");return}
-  if(!prendas.length){
-    h+='<div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M12 7a2 2 0 1 1 2 2c-1 0-2 .8-2 2v1M12 12 3 19h18z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><p class="display sm">Tu armario está vacío</p><p class="muted">Haz una foto a cada prenda. '+(hayIA()?"La IA detecta el tipo, el color y el estilo, y tú puedes corregirlo.":"Si conectas la IA en Ajustes, rellenará los datos por ti.")+'</p><button class="btn primary" data-act="nueva">Añadir mi primera prenda</button></div>';
+  h+=loteHTML();
+  if(!prendas.length&&!(lote&&lote.activo)){
+    h+='<div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M12 7a2 2 0 1 1 2 2c-1 0-2 .8-2 2v1M12 12 3 19h18z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><p class="display sm">Tu armario está vacío</p><p class="muted">Haz una foto a cada prenda. '+(hayIA()?"La IA detecta el tipo, el color y el estilo, y tú puedes corregirlo.":"Si conectas la IA en Ajustes, rellenará los datos por ti.")+'</p><div class="row" style="flex-wrap:wrap;justify-content:center"><button class="btn primary" data-act="nueva">Añadir una prenda</button><button class="btn" data-act="varias">Añadir varias a la vez</button></div></div>';
     v.innerHTML=h;return;
   }
+  if(!(lote&&lote.activo))h+='<button class="btn wide" data-act="varias"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 7h3l2-3h5l2 3h3v10H3zM10.5 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM21 9v11H7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Añadir varias prendas a la vez</button>';
   h+='<label class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="sr">Buscar prenda</span><input id="q" type="search" placeholder="Busca por nombre, color, marca…" value="'+esc(st.q)+'" autocomplete="off"></label>';
   h+='<div class="chips scroll" role="group" aria-label="Tipo de prenda">';
   ["Todo"].concat(TIPOS.map(function(t){return PLURAL[t]})).forEach(function(c){h+='<button class="chip" data-act="cat" data-v="'+esc(c)+'" aria-pressed="'+(st.cat===c)+'">'+esc(c)+'</button>'});
@@ -524,7 +536,7 @@ function renderArmario(){
   if(!list.length)h+='<p class="note">No hay prendas con estos filtros.</p>';
   else{
     h+='<div class="grid">';
-    list.forEach(function(p){h+='<button class="card" data-act="editar" data-id="'+esc(p.id)+'"><div class="ph">'+foto(p)+'</div><b>'+esc(p.nombre)+'</b><small>'+esc([p.marca,p.tipo].filter(Boolean).join(" · "))+'</small></button>'});
+    list.forEach(function(p){h+='<button class="card" data-act="editar" data-id="'+esc(p.id)+'"><div class="ph">'+foto(p)+'</div><b>'+esc(p.nombre)+'</b><small>'+(p.revisar?'<span style="color:var(--danger)">Por revisar</span> · ':'')+esc([p.marca,p.tipo].filter(Boolean).join(" · "))+'</small></button>'});
     h+='</div>';
   }
   var foco=document.activeElement&&document.activeElement.id==="q";
@@ -748,17 +760,25 @@ function recortar(){
   if(!ed||!ed.blob||ed.recorte==="working")return;
   var mine=ed,src=ed.original||ed.blob;
   ed.original=src;ed.recorte="working";ed.fase="";ed.pct=0;renderFoto();
-  cargarRecortador().then(function(m){
-    var fn=m.removeBackground||(m.default&&m.default.removeBackground)||m.default;
-    return fn(src,{model:"isnet_quint8",output:{format:"image/png"},progress:function(key,cur,tot){
-      if(ed!==mine||!tot)return;
-      mine.fase=String(key).indexOf("fetch")===0?"descarga":"proceso";
-      mine.pct=Math.min(100,Math.round(cur/tot*100));
-      var el=$("#bgMsg");if(el)el.textContent=textoRecorte(mine);
-    }});
-  }).then(ajustarRecorte).then(function(png){
+  quitarFondo(src,function(fase,pct){
+    if(ed!==mine)return;mine.fase=fase;mine.pct=pct;
+    var el=$("#bgMsg");if(el)el.textContent=textoRecorte(mine);
+  }).then(function(png){
     if(ed!==mine)return;setFoto(png,true);ed.recorte="done";renderFoto();
   }).catch(function(){if(ed!==mine)return;ed.recorte="error";renderFoto()});
+}
+var colaFondo=Promise.resolve();
+function quitarFondo(src,onProg){
+  // De una en una, para no saturar el iPhone.
+  var p=colaFondo.then(function(){return cargarRecortador()}).then(function(m){
+    var fn=m.removeBackground||(m.default&&m.default.removeBackground)||m.default;
+    return fn(src,{model:"isnet_quint8",output:{format:"image/png"},progress:function(key,cur,tot){
+      if(!tot||!onProg)return;
+      onProg(String(key).indexOf("fetch")===0?"descarga":"proceso",Math.min(100,Math.round(cur/tot*100)));
+    }});
+  }).then(ajustarRecorte);
+  colaFondo=p.catch(function(){});
+  return p;
 }
 function ajustarRecorte(blob){
   // Recorta los bordes transparentes para que la prenda ocupe toda la foto.
@@ -785,21 +805,108 @@ function analizar(blob){
   if(!hayIA()){s.textContent="Rellena los datos de la prenda. Si conectas la IA en Ajustes, lo hará por ti.";return}
   s.innerHTML='<span class="thinking"><span class="dots"><i></i><i></i><i></i></span>La IA está mirando la prenda…</span>';
   if(edCtl)edCtl.abort();edCtl=new AbortController();var mine=ed;
-  var prompt="Mira la foto de UNA prenda de ropa o complemento y descríbela para un armario virtual en español.\n"+
-    "Responde SOLO con este JSON:\n{\"nombre\":\"nombre corto, ej. Chaqueta vaquera azul\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"color\":\"color principal, uno de: "+COLORES.map(function(c){return c[0]}).join(", ")+"; si ninguno encaja, otro nombre corto\",\"colorHex\":\"#RRGGBB del color principal\",\"marca\":\"marca solo si se ve claramente en etiqueta o logo; si no, cadena vacía\",\"estilo\":\"uno de: "+ESTILOS.join(", ")+"\",\"temporada\":\"uno de: "+TEMPORADAS.join(", ")+"\"}";
-  preguntarIA(prompt,blob,edCtl.signal).then(function(r){
+  preguntarIA(promptAnalisis(),blob,edCtl.signal,0.2).then(function(r){
     if(ed!==mine||!r)return;
     if(r.nombre&&!$("#edNombre").value.trim())$("#edNombre").value=String(r.nombre);
     if(TIPOS.indexOf(r.tipo)>=0)$("#edTipo").value=r.tipo;
     if(r.marca&&!$("#edMarca").value.trim())$("#edMarca").value=String(r.marca);
     if(ESTILOS.indexOf(r.estilo)>=0)$("#edEstilo").value=r.estilo;
     if(TEMPORADAS.indexOf(r.temporada)>=0)$("#edTemporada").value=r.temporada;
-    if(r.color){var k=COLORES.filter(function(c){return c[0].toLowerCase()===String(r.color).toLowerCase()})[0];
-      ed.color=k?k[0]:String(r.color);ed.colorHex=k?k[1]:safeHex(r.colorHex);ed.colorBy="ia";renderColores()}
+    if(r.color){var k=colorDe(r);ed.color=k[0];ed.colorHex=k[1];ed.colorBy="ia";renderColores()}
     s.textContent="Listo. Revisa los datos y cambia lo que no esté bien.";
   }).catch(function(e){if(ed!==mine)return;var m=iaErr(e);if(!m){s.hidden=true;return}
     s.innerHTML=esc(m)+(e&&e.detalle?'<br><small style="font-size:12px">Detalle: '+esc(e.detalle)+'</small>':'')+'<br><button type="button" class="btn small" data-act="reanalizar" style="margin-top:8px">Volver a analizar</button>'});
 }
+function colorDe(r){
+  var k=COLORES.filter(function(c){return c[0].toLowerCase()===String(r.color).toLowerCase()})[0];
+  return k?[k[0],k[1]]:[String(r.color),safeHex(r.colorHex)];
+}
+function promptAnalisis(){
+  return "Eres experto en ropa. Mira la foto de UNA prenda de ropa o complemento y descríbela para un armario virtual en español.\n"+
+    "La prenda puede estar arrugada, doblada o encima de una cama, sábana, suelo o percha: ignora por completo el fondo, las sombras y los objetos de alrededor.\n\n"+
+    "PRIMERO observa con atención estos rasgos y escríbelos en \"rasgos\": tejido (punto de lana visible, felpa de algodón gruesa, algodón fino, vaquero, piel…), cuello (redondo, pico, alto/vuelto, polo con botones, camisero, capucha), cierre (ninguno, botones, cremallera entera o media), puños y bajo (acanalados gruesos o simples), bolsillos (canguro, laterales…) y grosor aparente.\n"+
+    "DESPUÉS decide el tipo con estas reglas:\n"+
+    "- Jersey: prenda de PUNTO tejido (se ve la textura del punto o es lana, cachemir, mohair o algodón tricotado). Incluye cuello redondo, de pico, alto, vuelto y jerséis polo de punto con botones en el cuello. Un cárdigan de punto (abierto con botones) también es Jersey.\n"+
+    "- Sudadera: tejido de FELPA o algodón grueso de chándal, superficie lisa sin punto visible, puños y cintura acanalados. Con o sin capucha, con bolsillo canguro o cremallera. Una sudadera con capucha y cremallera sigue siendo Sudadera, no Chaqueta.\n"+
+    "- Camiseta: algodón fino tipo punto liso (como una camiseta normal), manga corta o larga, sin puños gruesos. Un polo de piqué de manga corta es Camiseta.\n"+
+    "- Camisa: tejido plano con botones en toda la parte delantera y cuello camisero.\n"+
+    "- Chaqueta: prenda exterior que se abre entera, de tejido no de punto (vaquera, cuero, bomber, americana, cortavientos, sobrecamisa gruesa).\n"+
+    "- Abrigo: prenda exterior larga o acolchada para frío (abrigo, plumífero, parka, gabardina).\n"+
+    "Si dudas entre Jersey y Sudadera, decide por la textura: punto visible = Jersey; superficie lisa y gruesa de algodón = Sudadera.\n\n"+
+    "Color: el color dominante del TEJIDO de la prenda, no del fondo ni de las sombras. Si es jaspeado o mezcla (típico en jerséis y sudaderas), elige el tono medio que se ve de lejos.\n"+
+    "Temporada: jerséis de lana, sudaderas gruesas y abrigos son Otoño/Invierno; prendas finas de manga corta son Primavera/Verano.\n\n"+
+    "Responde SOLO con este JSON:\n{\"rasgos\":\"descripción breve de los rasgos observados\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"nombre\":\"nombre corto y concreto, ej. Jersey de punto cuello polo marrón, Sudadera con capucha gris\",\"color\":\"color principal, uno de: "+COLORES.map(function(c){return c[0]}).join(", ")+"; si ninguno encaja, otro nombre corto\",\"colorHex\":\"#RRGGBB del color principal\",\"marca\":\"marca solo si se ve claramente en etiqueta o logo; si no, cadena vacía\",\"estilo\":\"uno de: "+ESTILOS.join(", ")+"\",\"temporada\":\"uno de: "+TEMPORADAS.join(", ")+"\"}";
+}
+
+/* ---- añadir varias prendas a la vez ---- */
+var lote=null; // {items:[{id,nombre,estado,msg,thumb}], hecho:n}
+function esperar(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function analizarConReintento(blob){
+  return preguntarIA(promptAnalisis(),blob,null,0.2).catch(function(e){
+    if(e&&e.code==="limite")return esperar(30000).then(function(){return preguntarIA(promptAnalisis(),blob,null,0.2)});
+    throw e;
+  });
+}
+function iniciarLote(files){
+  files=Array.prototype.slice.call(files||[]).filter(function(f){return /^image\//.test(f.type)||/\.(jpe?g|png|heic|heif|webp)$/i.test(f.name)});
+  if(!files.length)return;
+  if(lote&&lote.activo){toast("Espera a que termine el grupo actual.");return}
+  if(lote)lote.items.forEach(function(x){if(x.thumb)URL.revokeObjectURL(x.thumb)});
+  var wl=null;try{if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){wl=l}).catch(function(){})}catch(e){}
+  lote={soltar:function(){try{if(wl)wl.release()}catch(e){}},activo:true,items:files.map(function(f,i){return {n:i,estado:"espera",nombre:"Foto "+(i+1),msg:"",thumb:null}})};
+  pedirPersistencia();renderArmario();
+  var auto=lsGet("al_auto_bg",true),i=0;
+  function paso(){
+    if(i>=files.length){lote.activo=false;lote.soltar();renderArmario();
+      var ok=lote.items.filter(function(x){return x.estado==="ok"||x.estado==="revisar"}).length;
+      toast(ok===files.length?"¡"+ok+" prendas añadidas!":ok+" de "+files.length+" prendas añadidas");return}
+    var it=lote.items[i],f=files[i];i++;
+    it.estado="procesando";it.msg="Preparando la foto…";renderLote();
+    var original,png=false;
+    prepararFoto(f).then(function(r){
+      original=r.blob;png=r.png;it.thumb=URL.createObjectURL(r.blob);
+      var fondo=(!png&&auto)?quitarFondo(original,function(fase,pct){it.msg=fase==="descarga"&&pct<100?"Preparando el recortador… "+pct+"%":"Quitando el fondo…";renderLote()}).catch(function(){return null}):Promise.resolve(null);
+      it.msg=hayIA()?"Analizando con la IA…":"Quitando el fondo…";renderLote();
+      var ia=hayIA()?analizarConReintento(original).catch(function(e){return {_error:e}}):Promise.resolve({_error:{code:"sin_clave"}});
+      return Promise.all([fondo,ia]);
+    }).then(function(res){
+      var recorte=res[0],r=res[1]||{},fallo=r._error;
+      var tipo=TIPOS.indexOf(r.tipo)>=0?r.tipo:"Camiseta",col=r.color?colorDe(r):["",""];
+      var p={id:nuevoId(),nombre:String(r.nombre||"").trim()||"Prenda nueva",tipo:tipo,marca:String(r.marca||"").trim(),
+        color:col[0],colorHex:col[1],colorBy:r.color?"ia":"",estilo:ESTILOS.indexOf(r.estilo)>=0?r.estilo:"Casual",
+        temporada:TEMPORADAS.indexOf(r.temporada)>=0?r.temporada:"Todo el año",
+        blob:recorte||original,png:!!recorte||png,creada:new Date(Date.now()-i).toISOString(),ultimoUso:null,revisar:!!fallo};
+      it.id=p.id;it.nombre=p.nombre;
+      if(recorte){if(it.thumb)URL.revokeObjectURL(it.thumb);it.thumb=URL.createObjectURL(recorte)}
+      return guardarObj("prendas",p).then(function(){
+        it.estado=fallo?"revisar":"ok";it.msg=fallo?(fallo.code==="sin_clave"?"Guardada. Rellena los datos a mano.":"Guardada sin datos de la IA. Tócala para completarla."):[p.tipo,p.color,p.marca].filter(Boolean).join(" · ");
+      });
+    }).catch(function(e){
+      it.estado="error";it.msg=e&&e.name==="QuotaExceededError"?"No queda espacio en el iPhone.":"No se pudo procesar esta foto.";
+    }).then(function(){return recargarSinRender()}).then(function(){renderLote();setTimeout(paso,hayIA()?1500:200)});
+  }
+  paso();
+}
+function recargarSinRender(){
+  return Promise.all([todos("prendas"),todos("looks")]).then(function(r){
+    prendas=r[0].sort(function(a,b){return String(b.creada||"").localeCompare(String(a.creada||""))});
+    looks=r[1].sort(function(a,b){return String(b.fecha||"").localeCompare(String(a.fecha||""))});
+  });
+}
+function loteHTML(){
+  if(!lote)return "";
+  var tot=lote.items.length,hechas=lote.items.filter(function(x){return x.estado!=="espera"&&x.estado!=="procesando"}).length;
+  var h='<section class="panel" id="lotePanel" aria-live="polite"><div class="row between"><h2 class="label" style="color:var(--ink);font-weight:600">'+(lote.activo?"Añadiendo prendas · "+hechas+" de "+tot:"Prendas añadidas · "+hechas+" de "+tot)+'</h2>'+(lote.activo?'':'<button class="btn small" data-act="cerrarLote">Hecho</button>')+'</div>';
+  if(lote.activo)h+='<p class="note">Deja la app abierta y la pantalla encendida hasta que termine.</p>';
+  h+='<div class="lote">';
+  lote.items.forEach(function(it){
+    var ico=it.estado==="ok"?'<span class="ai-badge">Lista</span>':it.estado==="revisar"?'<span class="ai-badge" style="background:var(--surface);color:var(--danger);border:1px solid var(--danger)">Revisar</span>':it.estado==="error"?'<span class="ai-badge" style="color:var(--danger)">Error</span>':it.estado==="procesando"?'<span class="dots"><i></i><i></i><i></i></span>':'<span class="muted" style="font-size:12px">En cola</span>';
+    var inner='<span class="lthumb">'+(it.thumb?'<img src="'+it.thumb+'" alt="">':'')+'</span><span class="ltxt"><b>'+esc(it.nombre)+'</b><small>'+esc(it.msg)+'</small></span>'+ico;
+    h+=it.id&&!lote.activo?'<button class="litem" data-act="editar" data-id="'+esc(it.id)+'">'+inner+'</button>':'<div class="litem">'+inner+'</div>';
+  });
+  return h+'</div></section>';
+}
+function renderLote(){var el=$("#lotePanel");if(el&&st.tab==="armario")el.outerHTML=loteHTML();else if(st.tab==="armario")renderArmario()}
 function guardar(){
   if(!ed)return;
   var tipo=$("#edTipo").value,nombre=$("#edNombre").value.trim()||(tipo+(ed.color?" "+ed.color.toLowerCase():""));
@@ -869,6 +976,8 @@ document.addEventListener("click",function(e){
     case "color":st.color=v;render();break;
     case "marca":st.marca=v;render();break;
     case "nueva":abrirEditor(null);break;
+    case "varias":$("#loteFile").click();break;
+    case "cerrarLote":if(lote){lote.items.forEach(function(x){if(x.thumb)URL.revokeObjectURL(x.thumb)})}lote=null;render();break;
     case "editar":abrirEditor(a.dataset.id);break;
     case "cerrar":cerrarEditor();break;
     case "guardar":guardar();break;
@@ -898,6 +1007,7 @@ document.addEventListener("change",function(e){
   if(e.target.id==="edFile"){onFoto(e.target.files&&e.target.files[0]);e.target.value=""}
   else if(e.target.id==="edCustom"&&ed)renderColores();
   else if(e.target.id==="autoBg"){lsSet("al_auto_bg",e.target.checked)}
+  else if(e.target.id==="loteFile"){var fs=e.target.files;iniciarLote(fs);e.target.value=""}
   else if(e.target.id==="impFile"){importar(e.target.files&&e.target.files[0]);e.target.value=""}
 });
 document.addEventListener("keydown",function(e){
