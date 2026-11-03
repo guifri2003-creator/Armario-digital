@@ -1,6 +1,6 @@
 // Guarda la app en el iPhone para que abra rápido y sin conexión.
 // Sube la versión cada vez que cambie algún archivo de la app.
-const VERSION = "armario-v6";
+const VERSION = "armario-v8";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -22,8 +22,9 @@ self.addEventListener("fetch", (e) => {
   // La página principal: primero internet (para recibir actualizaciones), si no hay conexión, la copia guardada.
   if (e.request.mode === "navigate") {
     e.respondWith(
-      fetch(e.request)
-        .then((res) => { const copy = res.clone(); caches.open(VERSION).then((c) => c.put("./index.html", copy)); return res; })
+      // no-store: salta la caché de GitHub y del navegador para recibir siempre la última versión.
+      fetch(url.href, { cache: "no-store", credentials: "same-origin" })
+        .then((res) => { if (!res.ok) throw new Error(res.status); const copy = res.clone(); caches.open(VERSION).then((c) => c.put("./index.html", copy)); return res; })
         .catch(() => caches.match("./index.html"))
     );
     return;

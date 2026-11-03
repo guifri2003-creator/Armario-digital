@@ -235,6 +235,9 @@ legend b{color:var(--ink);font-weight:600}
 <script>
 (function(){
 "use strict";
+var APP_VERSION="8";
+/* Dirección del servidor de la IA (Cloudflare Worker). Pon aquí la tuya, ej.: "https://armario-ia.tucuenta.workers.dev" */
+var SERVIDOR_IA="";
 /* ================= catálogos ================= */
 var TIPOS=["Camiseta","Camisa","Jersey","Sudadera","Chaqueta","Abrigo","Pantalón","Falda","Vestido","Zapatos","Calcetines","Calzoncillos","Gorra","Complemento"];
 var PLURAL={Camiseta:"Camisetas",Camisa:"Camisas",Jersey:"Jerséis",Sudadera:"Sudaderas",Chaqueta:"Chaquetas",Abrigo:"Abrigos","Pantalón":"Pantalones",Falda:"Faldas",Vestido:"Vestidos",Zapatos:"Zapatos",Calcetines:"Calcetines",Calzoncillos:"Calzoncillos",Gorra:"Gorras",Complemento:"Complementos"};
@@ -298,14 +301,19 @@ function borrarObj(store,id){return tx(store,"readwrite",function(s){return s.de
 /* ================= IA (Gemini) ================= */
 var API="https://generativelanguage.googleapis.com/v1beta";
 function clave(){return lsGet("al_key","")}
-function hayIA(){return !!clave()}
+function codigo(){return lsGet("al_code","")}
+function usarServidor(){return !clave()&&!!SERVIDOR_IA&&!!codigo()}
+function hayIA(){return !!clave()||usarServidor()}
+function apiBase(){return usarServidor()?SERVIDOR_IA.replace(/\/+$/,"")+"/v1beta":API}
+function apiHeaders(json){var h=usarServidor()?{"x-access-code":codigo()}:{"x-goog-api-key":clave()};if(json)h["Content-Type"]="application/json";return h}
+function idIA(){return clave()?clave().slice(-6):"srv:"+codigo().length}
 function modelos(){
   var c=lsGet("al_models",null);
-  if(c&&c.k===clave().slice(-6)&&Date.now()-c.t<864e5&&c.list.length)return Promise.resolve(c.list);
+  if(c&&c.k===idIA()&&Date.now()-c.t<864e5&&c.list.length)return Promise.resolve(c.list);
   var todosM=[];
   function pagina(tok){
-    return fetch(API+"/models?pageSize=1000"+(tok?"&pageToken="+encodeURIComponent(tok):""),{headers:{"x-goog-api-key":clave()}}).then(function(r){
-      if(r.status===400||r.status===401||r.status===403)throw {code:"clave"};
+    return fetch(apiBase()+"/models?pageSize=1000"+(tok?"&pageToken="+encodeURIComponent(tok):""),{headers:apiHeaders(false)}).then(function(r){
+      if(r.status===400||r.status===401||r.status===403)throw {code:usarServidor()?"codigo":"clave"};
       if(!r.ok)throw {code:"red"};return r.json();
     }).then(function(j){
       todosM=todosM.concat(j.models||[]);
@@ -321,7 +329,7 @@ function modelos(){
     var lite=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash-lite$/.test(n)||n==="gemini-flash-lite-latest"}).sort(porVer);
     var prev=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash(-lite)?-preview$/.test(n)}).sort(porVer);
     var list=flash.slice(0,2).concat(latest,lite.slice(0,2),prev.slice(0,1));
-    lsSet("al_models",{k:clave().slice(-6),t:Date.now(),list:list});return list;
+    lsSet("al_models",{k:idIA(),t:Date.now(),list:list});return list;
   });
 }
 function blobA64(blob){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(String(fr.result).split(",")[1])};fr.onerror=rej;fr.readAsDataURL(blob)})}
@@ -337,7 +345,7 @@ function preguntarIA(prompt,imagen,signal,temp){
   if(!hayIA())return Promise.reject({code:"sin_clave"});
   var temperatura=typeof temp==="number"?temp:0.9;
   var partsP=imagen?blobA64(imagen).then(function(d){return [{text:prompt},{inline_data:{mime_type:imagen.type||"image/jpeg",data:d}}]}):Promise.resolve([{text:prompt}]);
-  var listaP=modelos().catch(function(e){if(e&&e.code==="clave")throw e;return []});
+  var listaP=modelos().catch(function(e){if(e&&(e.code==="clave"||e.code==="codigo"))throw e;return []});
   return Promise.all([listaP,partsP]).then(function(r){
     var list=r[0].slice(),parts=r[1],i=0,errores=[],retirados=lsGet("al_retirados",[]);
     RESERVA.forEach(function(m){if(list.indexOf(m)<0)list.push(m)});
@@ -363,8 +371,8 @@ function preguntarIA(prompt,imagen,signal,temp){
     }
     function intento(){
       var m=list[i];
-      return fetch(API+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal,
-        headers:{"Content-Type":"application/json","x-goog-api-key":clave()},
+      return fetch(apiBase()+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal||undefined,
+        headers:apiHeaders(true),
         body:JSON.stringify({contents:[{role:"user",parts:parts}],generationConfig:{responseMimeType:"application/json",temperature:temperatura}})
       }).then(function(res){
         return res.text().then(function(body){
@@ -372,6 +380,8 @@ function preguntarIA(prompt,imagen,signal,temp){
           if(!res.ok){
             var msg=(j&&j.error&&j.error.message)||body.slice(0,200);
             var err={code:"red",modelo:m,msg:msg,detalle:m+" · "+res.status+" · "+String(msg).slice(0,160)};
+            if(/ACCESS_CODE/.test(msg)){err.code="codigo";throw err}
+            if(/ORIGIN_NOT_ALLOWED/.test(msg)){err.code="origen";throw err}
             if((res.status===400||res.status===401||res.status===403)&&/API key|API_KEY|PERMISSION_DENIED|permission/i.test(msg)){err.code="clave";throw err}
             if(res.status===404||/no longer available|not found|is not supported for generateContent/i.test(msg))err.retirado=true;
             else if(res.status===429)err.code="limite";else if(res.status===400)err.code="peticion";
@@ -401,8 +411,10 @@ function probarIA(){
 }
 function iaErr(e){var c=e&&e.code;
   if(c==="cancelado")return "";
-  if(c==="sin_clave")return "Conecta la IA en Ajustes para usar esta función.";
+  if(c==="sin_clave")return "Escribe tu código de acceso en Ajustes para usar la IA.";
   if(c==="clave")return "La clave de Gemini no funciona. Revísala en Ajustes.";
+  if(c==="codigo")return "El código de acceso no es correcto. Revísalo en Ajustes.";
+  if(c==="origen")return "El servidor de la IA no acepta peticiones desde aquí.";
   if(c==="limite")return "Has llegado al límite gratuito de la IA por ahora. Prueba en un rato.";
   if(c==="json"||c==="vacio")return "La respuesta de la IA no salió bien. Pulsa otra vez.";
   if(c==="peticion")return "La IA no ha podido procesar esto. Prueba otra vez o con otra foto.";
@@ -464,12 +476,14 @@ function render(){
   if(st.tab==="hoy")renderHoy();else if(st.tab==="armario")renderArmario();else if(st.tab==="comprar")renderComprar();else renderAjustes();
 }
 function cargando(t){return '<div class="thinking"><span class="dots"><i></i><i></i><i></i></span>'+esc(t||"Cargando…")+'</div>'}
-function avisoIA(){return '<div class="install"><p><b>Conecta la IA</b> para que te cree looks e ideas de compra. Es gratis y tarda 2 minutos.</p><button class="btn primary small" data-goto="ajustes" style="align-self:flex-start">Conectar en Ajustes</button></div>'}
+function avisoIA(){return '<div class="install"><p><b>Conecta la IA</b> para que te cree looks e ideas de compra. '+(SERVIDOR_IA?'Solo tienes que escribir tu código de acceso.':'Es gratis y tarda 2 minutos.')+'</p><button class="btn primary small" data-goto="ajustes" style="align-self:flex-start">Conectar en Ajustes</button></div>'}
 function standalone(){return window.navigator.standalone===true||window.matchMedia("(display-mode: standalone)").matches}
 
 function renderHoy(){
   var v=$("#v-hoy");
-  var h='<header class="block" style="gap:8px"><p class="eyebrow">'+esc(hoyTexto())+'</p><h1 id="h-hoy" class="display">Tu look<br>de hoy</h1></header>';
+  var pf=perfil();
+  var h='<header class="block" style="gap:8px"><p class="eyebrow">'+esc(hoyTexto())+'</p><h1 id="h-hoy" class="display">'+(pf.nombre?'Hola, '+esc(pf.nombre)+'.<br>Tu look de hoy':'Tu look<br>de hoy')+'</h1></header>';
+  if(!pf.nombre||!pf.para)h+='<div class="install"><p><b>Cuéntanos un poco de ti</b>: tu nombre, para quién son los looks y tu estilo. Así la IA acierta mucho más.</p><button class="btn primary small" data-goto="ajustes" style="align-self:flex-start">Completar mi perfil</button></div>';
   if(!standalone()&&!lsGet("al_hide_install",false)){
     h+='<div class="install"><p><b>Instálala en tu iPhone:</b> en Safari pulsa <b>Compartir</b> y luego <b>Añadir a pantalla de inicio</b>. Se abrirá a pantalla completa, como una app.</p><button class="btn small" data-act="ocultarInstalar" style="align-self:flex-start">Entendido</button></div>';
   }
@@ -545,7 +559,7 @@ function renderArmario(){
   if(!(lote&&lote.activo))h+='<button class="btn wide" data-act="varias"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 7h3l2-3h5l2 3h3v10H3zM10.5 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM21 9v11H7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Añadir varias prendas a la vez</button>';
   h+='<label class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="sr">Buscar prenda</span><input id="q" type="search" placeholder="Busca por nombre, color, marca…" value="'+esc(st.q)+'" autocomplete="off"></label>';
   h+='<div class="chips scroll" role="group" aria-label="Tipo de prenda">';
-  ["Todo"].concat(TIPOS.map(function(t){return PLURAL[t]})).forEach(function(c){h+='<button class="chip" data-act="cat" data-v="'+esc(c)+'" aria-pressed="'+(st.cat===c)+'">'+esc(c)+'</button>'});
+  ["Todo"].concat(TIPOS.map(function(t){return PLURAL[t]})).forEach(function(c){h+='<button class="chip" data-act="cat" data-v="'+esc(c)+'" aria-pressed="'+(st.cat===c)+'">'+esc(etqPlural(c))+'</button>'});
   h+='</div>';
   var cols={};prendas.forEach(function(p){if(p.color)cols[p.color]=p.colorHex});
   var nombres=Object.keys(cols);
@@ -564,7 +578,7 @@ function renderArmario(){
   if(!list.length)h+='<p class="note">No hay prendas con estos filtros.</p>';
   else{
     h+='<div class="grid">';
-    list.forEach(function(p){h+='<button class="card" data-act="editar" data-id="'+esc(p.id)+'"><div class="ph">'+foto(p)+'</div><b>'+esc(p.nombre)+'</b><small>'+(p.revisar?'<span style="color:var(--danger)">Por revisar</span> · ':'')+esc([p.marca,p.tipo].filter(Boolean).join(" · "))+'</small></button>'});
+    list.forEach(function(p){h+='<button class="card" data-act="editar" data-id="'+esc(p.id)+'"><div class="ph">'+foto(p)+'</div><b>'+esc(p.nombre)+'</b><small>'+(p.revisar?'<span style="color:var(--danger)">Por revisar</span> · ':'')+esc([p.marca,etq(p.tipo)].filter(Boolean).join(" · "))+'</small></button>'});
     h+='</div>';
   }
   var foco=document.activeElement&&document.activeElement.id==="q";
@@ -602,25 +616,64 @@ function renderComprar(){
   v.innerHTML=h;
 }
 
-function renderAjustes(){
-  var v=$("#v-ajustes"),k=clave();
-  var h='<header><h1 id="h-ajustes" class="display md">Ajustes</h1></header>';
-  h+='<section class="panel"><div class="row between"><h2 class="display sm">Inteligencia artificial</h2>'+(k?'<span class="ai-badge">Conectada</span>':'')+'</div>';
+var ESTILOS_PERFIL=["Clásico","Minimalista","Casual","Urbano","Elegante","Deportivo","Bohemio","Romántico","Atrevido"];
+function perfil(){var p=lsGet("al_perfil",null)||{};return {nombre:String(p.nombre||""),para:String(p.para||""),estilos:Array.isArray(p.estilos)?p.estilos:[]}}
+function guardarPerfil(p){lsSet("al_perfil",p)}
+function perfilTexto(){
+  var p=perfil(),t=[];
+  if(p.nombre)t.push("se llama "+p.nombre);
+  if(p.para==="Mujer")t.push("los looks son para una mujer");else if(p.para==="Hombre")t.push("los looks son para un hombre");
+  if(p.estilos.length)t.push("su estilo preferido es: "+p.estilos.join(", ").toLowerCase());
+  return t.length?"Sobre la persona: "+t.join("; ")+". Ten en cuenta sus gustos al elegir y recomendar.\n\n":"";
+}
+function etq(t){return t==="Calzoncillos"&&perfil().para!=="Hombre"?"Ropa interior":t}
+function etqPlural(pl){return pl==="Calzoncillos"&&perfil().para!=="Hombre"?"Ropa interior":pl}
+function perfilHTML(){
+  var p=perfil();
+  var h='<section class="panel"><h2 class="display sm">Tu perfil</h2>';
+  h+='<label class="fieldlbl"><span>Tu nombre</span><input id="pfNombre" class="field" value="'+esc(p.nombre)+'" placeholder="Ej. Laura" autocomplete="given-name"></label>';
+  h+='<div class="block" style="gap:8px"><span class="label" style="font-size:13px">Los looks son para</span><div class="chips">';
+  ["Mujer","Hombre"].forEach(function(o){h+='<button class="chip" data-act="pfPara" data-v="'+o+'" aria-pressed="'+(p.para===o)+'">'+o+'</button>'});
+  h+='</div></div><div class="block" style="gap:8px"><span class="label" style="font-size:13px">Tu estilo (elige los que quieras)</span><div class="chips">';
+  ESTILOS_PERFIL.forEach(function(o){h+='<button class="chip sm" data-act="pfEstilo" data-v="'+o+'" aria-pressed="'+(p.estilos.indexOf(o)>=0)+'">'+o+'</button>'});
+  h+='</div></div><p class="note">Tu armario y tus datos se guardan solo en este móvil. Nadie más los ve.</p></section>';
+  return h;
+}
+function claveHTML(k){
+  var h='';
   if(!k){
-    h+='<p class="note" style="color:var(--ink)">La app usa Gemini, la IA de Google, que es gratis para uso personal. Necesitas una clave:</p><ol class="steps">'+
+    h+='<p class="note" style="color:var(--ink)">Gemini, la IA de Google, es gratis para uso personal. Para usar tu propia clave:</p><ol class="steps">'+
       '<li>Abre <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e inicia sesión con tu cuenta de Google.</li>'+
       '<li>Pulsa <b>Create API key</b> (Crear clave) y cópiala.</li>'+
       '<li>Pégala aquí abajo y pulsa <b>Guardar</b>.</li></ol>';
   } else h+='<p class="note">Tu clave está guardada solo en este iPhone. No la compartas con nadie.</p>';
   h+='<label for="keyIn" class="sr">Clave de Gemini</label><div class="keyrow"><input id="keyIn" class="field" type="password" placeholder="'+(k?"••••••••"+esc(k.slice(-4)):"Pega aquí tu clave")+'" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn primary" data-act="guardarClave"'+(st.keyState==="loading"?" disabled":"")+'>Guardar</button></div>';
-  if(st.keyState==="loading")h+=cargando("Comprobando la clave…");
-  else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
-  if(k)h+='<div class="row" style="flex-wrap:wrap"><button class="btn small" data-act="probarIA"'+(st.keyState==="loading"?" disabled":"")+'>Probar la IA</button><button class="btn danger small" data-act="quitarClave">Quitar la clave</button></div>';
+  if(k)h+='<button class="btn danger small" data-act="quitarClave" style="align-self:flex-start">Quitar la clave</button>';
+  return h;
+}
+function renderAjustes(){
+  var v=$("#v-ajustes"),k=clave(),cod=codigo();
+  var h='<header><h1 id="h-ajustes" class="display md">Ajustes</h1></header>';
+  h+=perfilHTML();
+  h+='<section class="panel"><div class="row between"><h2 class="display sm">Inteligencia artificial</h2>'+(hayIA()?'<span class="ai-badge">Conectada</span>':'')+'</div>';
+  if(SERVIDOR_IA){
+    h+='<p class="note" style="color:var(--ink)">Escribe el <b>código de acceso</b> que te han dado para usar la IA. Solo hace falta una vez.</p>';
+    h+='<label for="codeIn" class="sr">Código de acceso</label><div class="keyrow"><input id="codeIn" class="field" type="password" placeholder="'+(cod?"Código guardado":"Código de acceso")+'" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn primary" data-act="guardarCodigo"'+(st.keyState==="loading"?" disabled":"")+'>Guardar</button></div>';
+    if(st.keyState==="loading")h+=cargando("Comprobando…");
+    else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
+    if(hayIA())h+='<button class="btn small" data-act="probarIA" style="align-self:flex-start"'+(st.keyState==="loading"?" disabled":"")+'>Probar la IA</button>';
+    h+='<details'+(k?' open':'')+'><summary class="note" style="cursor:pointer;padding:8px 0">Usar mi propia clave de Gemini (opcional)</summary><div class="block" style="padding-top:8px">'+claveHTML(k)+'</div></details>';
+  } else {
+    h+=claveHTML(k);
+    if(st.keyState==="loading")h+=cargando("Comprobando la clave…");
+    else if(st.keyMsg)h+='<p class="note" style="color:'+(st.keyState==="error"?"var(--danger)":"var(--accent)")+'">'+esc(st.keyMsg)+'</p>';
+    if(k)h+='<button class="btn small" data-act="probarIA" style="align-self:flex-start"'+(st.keyState==="loading"?" disabled":"")+'>Probar la IA</button>';
+  }
   h+='</section>';
   h+='<section class="panel"><h2 class="display sm">Fotos</h2><label class="toggle" for="autoBg"><span>Quitar el fondo automáticamente al hacer una foto</span><input type="checkbox" id="autoBg"'+(lsGet("al_auto_bg",true)?" checked":"")+'></label><p class="note">El recorte se hace dentro de tu iPhone. La primera vez descarga unos 40 MB, mejor con wifi.</p></section>';
   h+='<section class="panel"><h2 class="display sm">Copia de seguridad</h2><p class="note">Tus prendas y fotos se guardan solo en este iPhone. Haz una copia de vez en cuando y guárdala en Archivos o iCloud, por si cambias de móvil o borras Safari.</p>'+
     '<div class="row" style="flex-wrap:wrap"><button class="btn primary" data-act="exportar"'+(prendas.length?"":" disabled")+'>Hacer copia</button><button class="btn" data-act="importar">Recuperar copia</button></div><p id="bkMsg" class="note" hidden></p></section>';
-  h+='<p class="note" style="text-align:center">'+prendas.length+' prendas · '+looks.length+' looks guardados</p>';
+  h+='<p class="note" style="text-align:center">'+prendas.length+' prendas · '+looks.length+' looks guardados · Versión '+APP_VERSION+'</p>';
   v.innerHTML=h;
 }
 
@@ -639,7 +692,7 @@ function crearLook(otra){
   if(otra&&st.look)st.previas.push(st.look.prendas.join(","));
   if(!otra)st.previas=[];
   var rec=looks.slice(0,6).map(function(l){return "- "+hace(l.fecha)+": "+(l.prendas||[]).map(function(id){var p=byId(id);return p?p.nombre:id}).join(", ")}).join("\n");
-  var prompt="Eres un estilista personal con muy buen gusto. Crea UN outfit bonito, coherente y adecuado usando SOLO prendas de este armario.\n\n"+
+  var prompt="Eres un estilista personal con muy buen gusto. Crea UN outfit bonito, coherente y adecuado usando SOLO prendas de este armario.\n\n"+perfilTexto()+
     "Plan de hoy: "+st.plan+(st.detalle.trim()?". Detalles: "+st.detalle.trim():"")+"\n"+
     "Tiempo: "+tiempoTexto()+"\n\n"+
     "Armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+armarioTexto()+"\n\n"+
@@ -667,7 +720,7 @@ function ponerse(){
 function normIdeas(arr){return (Array.isArray(arr)?arr:[]).slice(0,5).map(function(i){return {nombre:String(i.nombre||""),tipo:TIPOS.indexOf(i.tipo)>=0?i.tipo:"Complemento",colorHex:safeHex(i.colorHex),porQue:String(i.porQue||""),busqueda:String(i.busqueda||i.nombre||"")}}).filter(function(i){return i.nombre})}
 function pedirFaltan(){
   st.faltanState="loading";render();
-  var prompt="Eres estilista personal. Este es mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+armarioTexto()+
+  var prompt="Eres estilista personal. "+perfilTexto()+"Este es mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+armarioTexto()+
     "\n\nDime entre 3 y 4 prendas o complementos clave que me faltan para poder crear más looks y cubrir planes como trabajo, cena, deporte, frío y calor. Que encajen con el estilo que ya tengo y combinen con muchas de mis prendas. No propongas cosas que ya tengo.\n\n"+
     "Responde SOLO con JSON, en español:\n{\"faltan\":[{\"nombre\":\"nombre corto\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"colorHex\":\"#RRGGBB\",\"porQue\":\"una frase: por qué la necesito y con qué de mi armario combina\",\"busqueda\":\"texto para buscar en una tienda online\"}]}";
   preguntarIA(prompt).then(function(r){st.faltan=normIdeas(r&&r.faltan);if(st.faltan.length)st.faltanState="done";else{st.faltanState="error";st.faltanMsg="No he encontrado ideas. Prueba otra vez."}})
@@ -679,11 +732,24 @@ function pedirIdeas(id){
   if(ideasCtl)ideasCtl.abort();
   st.sel=id;st.ideas=null;st.ideasState="loading";render();
   ideasCtl=new AbortController();
-  var prompt="Eres estilista personal. Prenda elegida: "+linea(p)+"\n\nResto de mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+(armarioTexto(id)||"(vacío)")+
+  var prompt="Eres estilista personal. "+perfilTexto()+"Prenda elegida: "+linea(p)+"\n\nResto de mi armario (id | tipo | nombre | color | marca | estilo | temporada | último uso):\n"+(armarioTexto(id)||"(vacío)")+
     "\n\nPropón 4 prendas o complementos para COMPRAR que combinen muy bien con la prenda elegida y que no tenga ya. Ten en cuenta colores, estilo y temporada, y que también combinen con otras prendas de mi armario.\n\n"+
     "Responde SOLO con JSON, en español:\n{\"ideas\":[{\"nombre\":\"nombre corto\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"colorHex\":\"#RRGGBB\",\"porQue\":\"una frase sobre por qué combina\",\"busqueda\":\"texto para buscar en una tienda online\"}]}";
   preguntarIA(prompt,null,ideasCtl.signal).then(function(r){if(st.sel!==id)return;st.ideas=normIdeas(r&&r.ideas);st.ideasState="done"})
   .catch(function(e){if(st.sel!==id)return;st.ideasMsg=iaErr(e);st.ideasState=st.ideasMsg?"error":"idle"}).then(render);
+}
+function guardarCodigo(){
+  var val=($("#codeIn").value||"").trim();
+  if(!val){st.keyState="error";st.keyMsg="Escribe primero el código.";render();return}
+  var anterior=codigo();
+  lsSet("al_code",val);lsDel("al_models");lsDel("al_ok_model");lsDel("al_retirados");
+  st.keyState="loading";st.keyMsg="";render();
+  preguntarIA('Responde SOLO con este JSON: {"ok": true}').then(function(){
+    st.keyState="ok";st.keyMsg="¡Listo! La IA está conectada.";
+  }).catch(function(e){
+    if(e&&e.code==="codigo"){if(anterior)lsSet("al_code",anterior);else lsDel("al_code");}
+    st.keyState="error";st.keyMsg=iaErr(e)+(e&&e.detalle&&e.code!=="codigo"?" Detalle: "+e.detalle:"");
+  }).then(render);
 }
 function guardarClave(){
   var val=($("#keyIn").value||"").trim();
@@ -702,14 +768,14 @@ function guardarClave(){
 
 /* ================= editor de prenda ================= */
 var ed=null, edCtl=null;
-function fillSelect(sel,opts,val){sel.innerHTML=opts.map(function(o){return '<option'+(o===val?" selected":"")+'>'+esc(o)+'</option>'}).join("")}
+function fillSelect(sel,opts,val,lbl){sel.innerHTML=opts.map(function(o){return '<option value="'+esc(o)+'"'+(o===val?" selected":"")+'>'+esc(lbl?lbl(o):o)+'</option>'}).join("")}
 function abrirEditor(id){
   var p=id?byId(id):null;
   ed=p?{id:p.id,blob:p.blob||null,png:!!p.png,nueva:false,preview:null,color:p.color||"",colorHex:p.colorHex||"",colorBy:p.colorBy||"tu",borrar:false}
       :{id:null,blob:null,png:false,nueva:false,preview:null,color:"",colorHex:"",colorBy:"",borrar:false};
   $("#sheetTitle").textContent=p?"Editar prenda":"Nueva prenda";
   $("#edNombre").value=p?p.nombre||"":"";$("#edMarca").value=p?p.marca||"":"";
-  fillSelect($("#edTipo"),TIPOS,p?p.tipo:"Camiseta");fillSelect($("#edEstilo"),ESTILOS,p?p.estilo||"Casual":"Casual");fillSelect($("#edTemporada"),TEMPORADAS,p?p.temporada||"Todo el año":"Todo el año");
+  fillSelect($("#edTipo"),TIPOS,p?p.tipo:"Camiseta",etq);fillSelect($("#edEstilo"),ESTILOS,p?p.estilo||"Casual":"Casual");fillSelect($("#edTemporada"),TEMPORADAS,p?p.temporada||"Todo el año":"Todo el año");
   var s=$("#aiStatus");s.hidden=true;
   if(p&&p.blob&&hayIA()){s.hidden=false;s.innerHTML='<button type="button" class="btn small" data-act="reanalizar">Rellenar datos con la IA</button>'}
   var b=$("#btnGuardar");b.disabled=false;b.textContent="Guardar prenda";
@@ -852,7 +918,7 @@ function colorDe(r){
 function promptAnalisis(){
   return "Eres experto en ropa. Mira la foto de UNA prenda de ropa o complemento y descríbela para un armario virtual en español.\n"+
     "La prenda puede estar arrugada, doblada o encima de una cama, sábana, suelo o percha: ignora por completo el fondo, las sombras y los objetos de alrededor.\n\n"+
-    "PRIMERO observa con atención estos rasgos y escríbelos en \"rasgos\": tejido (punto de lana visible, felpa de algodón gruesa, algodón fino, vaquero, piel…), cuello (redondo, pico, alto/vuelto, polo con botones, camisero, capucha), cierre (ninguno, botones, cremallera entera o media), puños y bajo (acanalados gruesos o simples), bolsillos (canguro, laterales…) y grosor aparente.\n"+
+    "PRIMERO observa con atención estos rasgos y escríbelos en \"rasgos\": tejido (punto de lana visible, felpa de algodón gruesa, algodón fino, vaquero, piel…), cuello (redondo, pico, alto/vuelto, polo con botones, camisero, capucha), cierre (ninguno, botones, cremallera entera o media), puños y bajo (acanalados gruesos o simples), bolsillos (canguro, laterales…), grosor aparente (fino, medio, grueso), estampados o logos, y si su acabado es elegante o informal.\n"+
     "DESPUÉS decide el tipo con estas reglas:\n"+
     "- Jersey: prenda de PUNTO tejido (se ve la textura del punto o es lana, cachemir, mohair o algodón tricotado). Incluye cuello redondo, de pico, alto, vuelto y jerséis polo de punto con botones en el cuello. Un cárdigan de punto (abierto con botones) también es Jersey.\n"+
     "- Sudadera: tejido de FELPA o algodón grueso de chándal, superficie lisa sin punto visible, puños y cintura acanalados. Con o sin capucha, con bolsillo canguro o cremallera. Una sudadera con capucha y cremallera sigue siendo Sudadera, no Chaqueta.\n"+
@@ -862,7 +928,18 @@ function promptAnalisis(){
     "- Abrigo: prenda exterior larga o acolchada para frío (abrigo, plumífero, parka, gabardina).\n"+
     "Si dudas entre Jersey y Sudadera, decide por la textura: punto visible = Jersey; superficie lisa y gruesa de algodón = Sudadera.\n\n"+
     "Color: el color dominante del TEJIDO de la prenda, no del fondo ni de las sombras. Si es jaspeado o mezcla (típico en jerséis y sudaderas), elige el tono medio que se ve de lejos.\n"+
-    "Temporada: jerséis de lana, sudaderas gruesas y abrigos son Otoño/Invierno; prendas finas de manga corta son Primavera/Verano.\n\n"+
+    "ESTILO, elige uno con estas reglas:\n"+
+    "- Básico: prenda lisa, de color neutro o sólido, sin estampados, logos grandes ni detalles llamativos, que combina con casi todo. Ej.: camiseta lisa blanca/negra/gris, jersey liso de punto, vaquero recto azul, chino liso, zapatillas blancas lisas.\n"+
+    "- Casual: ropa de diario relajada con algo de personalidad: estampados, rayas, gráficos o logos visibles, sudaderas, vaqueros rotos o lavados, camisas de cuadros, zapatillas de colores, gorras.\n"+
+    "- Formal: para trabajo arreglado o eventos: camisa de vestir, americana, traje, pantalón de pinzas o de vestir, jersey fino de punto (merino, cachemir) de cuello polo, alto o de pico, mocasines, zapatos de piel, vestido elegante, falda midi de vestir.\n"+
+    "- Deportivo: para hacer deporte: tejidos técnicos, mallas, chándal, pantalón corto de deporte, camiseta técnica, zapatillas de running.\n"+
+    "- Fiesta: para salir de noche o celebraciones: brillos, lentejuelas, satén, terciopelo, encaje, escotes, tacones, colores metalizados.\n"+
+    "Si una prenda lisa y neutra es además elegante (punto fino, cuello polo o camisero, tejido noble), elige Formal; si es lisa y sencilla de diario, Básico.\n\n"+
+    "TEMPORADA, decide por el GROSOR y el abrigo que da, no por el color:\n"+
+    "- Otoño/Invierno: abriga. Lana, punto grueso o de cuello alto, cachemir, felpa gruesa, pana, forro polar, plumífero, abrigos, forro interior, botas, gorros. Casi todos los jerséis y sudaderas gruesas van aquí.\n"+
+    "- Primavera/Verano: fresco y fino. Manga corta o tirantes, lino, algodón muy fino, pantalón corto, falda corta ligera, vestido fino, sandalias, chanclas.\n"+
+    "- Todo el año: grosor medio que se usa en cualquier época: camisetas básicas de manga larga finas, camisas de algodón, vaqueros, chinos, zapatillas, sudaderas finas.\n"+
+    "Si dudas entre Otoño/Invierno y Todo el año en un jersey de punto, elige Otoño/Invierno.\n\n"+
     "Responde SOLO con este JSON:\n{\"rasgos\":\"descripción breve de los rasgos observados\",\"tipo\":\"uno de: "+TIPOS.join(", ")+"\",\"nombre\":\"nombre corto y concreto, ej. Jersey de punto cuello polo marrón, Sudadera con capucha gris\",\"color\":\"color principal, uno de: "+COLORES.map(function(c){return c[0]}).join(", ")+"; si ninguno encaja, otro nombre corto\",\"colorHex\":\"#RRGGBB del color principal\",\"marca\":\"marca solo si se ve claramente en etiqueta o logo; si no, cadena vacía\",\"estilo\":\"uno de: "+ESTILOS.join(", ")+"\",\"temporada\":\"uno de: "+TEMPORADAS.join(", ")+"\"}";
 }
 
@@ -1015,6 +1092,9 @@ document.addEventListener("click",function(e){
     case "recortar":recortar();break;
     case "reanalizar":if(ed&&(ed.original||ed.blob))analizar(ed.original||ed.blob);break;
     case "probarIA":probarIA();break;
+    case "guardarCodigo":guardarCodigo();break;
+    case "pfPara":var pp=perfil();pp.para=pp.para===v?"":v;guardarPerfil(pp);render();break;
+    case "pfEstilo":var pe=perfil(),ix=pe.estilos.indexOf(v);if(ix>=0)pe.estilos.splice(ix,1);else pe.estilos.push(v);guardarPerfil(pe);render();break;
     case "original":if(ed&&ed.original){setFoto(ed.original,false);ed.recorte="idle";renderFoto()}break;
     case "edcolor":var k=COLORES.filter(function(c){return c[0]===v})[0];ed.color=k[0];ed.colorHex=k[1];ed.colorBy="tu";renderColores();break;
     case "faltan":pedirFaltan();break;
@@ -1034,6 +1114,7 @@ document.addEventListener("input",function(e){
 document.addEventListener("change",function(e){
   if(e.target.id==="edFile"){onFoto(e.target.files&&e.target.files[0]);e.target.value=""}
   else if(e.target.id==="edCustom"&&ed)renderColores();
+  else if(e.target.id==="pfNombre"){var pn=perfil();pn.nombre=e.target.value.trim().slice(0,40);guardarPerfil(pn);toast("Perfil guardado")}
   else if(e.target.id==="autoBg"){lsSet("al_auto_bg",e.target.checked)}
   else if(e.target.id==="loteFile"){var fs=e.target.files;iniciarLote(fs);e.target.value=""}
   else if(e.target.id==="impFile"){importar(e.target.files&&e.target.files[0]);e.target.value=""}
@@ -1051,7 +1132,18 @@ abrirDB().then(function(d){idb=d;return recargar()}).catch(function(){
   listo=true;render();toast("No se pudo abrir el almacenamiento del iPhone. Revisa que no estés en navegación privada.");
 });
 if(lsGet("al_geo",false))cargarTiempo(false);
-if("serviceWorker" in navigator)window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})});
+if("serviceWorker" in navigator)window.addEventListener("load",function(){
+  navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(function(reg){
+    reg.update().catch(function(){});
+    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")reg.update().catch(function(){})});
+  }).catch(function(){});
+  // Cuando llega una versión nueva, recarga una vez (salvo si estás editando una prenda o añadiendo varias).
+  var recargado=false;
+  navigator.serviceWorker.addEventListener("controllerchange",function(){
+    if(recargado)return;recargado=true;
+    if($("#sheet").hidden&&!(lote&&lote.activo))location.reload();
+  });
+});
 })();
 </script>
 </body>
