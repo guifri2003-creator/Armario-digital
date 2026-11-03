@@ -301,18 +301,26 @@ function clave(){return lsGet("al_key","")}
 function hayIA(){return !!clave()}
 function modelos(){
   var c=lsGet("al_models",null);
-  if(c&&c.k===clave().slice(-6)&&Date.now()-c.t<3*864e5&&c.list.length)return Promise.resolve(c.list);
-  return fetch(API+"/models?pageSize=200",{headers:{"x-goog-api-key":clave()}}).then(function(r){
-    if(r.status===400||r.status===401||r.status===403)throw {code:"clave"};
-    if(!r.ok)throw {code:"red"};return r.json();
-  }).then(function(j){
+  if(c&&c.k===clave().slice(-6)&&Date.now()-c.t<864e5&&c.list.length)return Promise.resolve(c.list);
+  var todosM=[];
+  function pagina(tok){
+    return fetch(API+"/models?pageSize=1000"+(tok?"&pageToken="+encodeURIComponent(tok):""),{headers:{"x-goog-api-key":clave()}}).then(function(r){
+      if(r.status===400||r.status===401||r.status===403)throw {code:"clave"};
+      if(!r.ok)throw {code:"red"};return r.json();
+    }).then(function(j){
+      todosM=todosM.concat(j.models||[]);
+      if(j.nextPageToken&&todosM.length<3000)return pagina(j.nextPageToken);
+    });
+  }
+  return pagina("").then(function(){
     var ver=function(n){var m=n.match(/gemini-(\d+(?:\.\d+)?)/);return m?parseFloat(m[1]):0};
-    var ok=(j.models||[]).filter(function(m){return (m.supportedGenerationMethods||[]).indexOf("generateContent")>=0}).map(function(m){return m.name.replace(/^models\//,"")});
-    var flash=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash$/.test(n)}).sort(function(a,b){return ver(b)-ver(a)});
-    var lite=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash-lite$/.test(n)}).sort(function(a,b){return ver(b)-ver(a)});
-    var latest=ok.filter(function(n){return /^gemini-flash-latest$/.test(n)});
-    var list=flash.concat(latest,lite).slice(0,5);
-    if(!list.length)list=["gemini-flash-latest","gemini-2.5-flash","gemini-2.0-flash"];
+    var ok=todosM.filter(function(m){var g=m.supportedGenerationMethods;return !g||g.indexOf("generateContent")>=0}).map(function(m){return String(m.name||"").replace(/^models\//,"")});
+    var porVer=function(a,b){return ver(b)-ver(a)};
+    var flash=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash$/.test(n)}).sort(porVer);
+    var latest=ok.filter(function(n){return n==="gemini-flash-latest"});
+    var lite=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash-lite$/.test(n)||n==="gemini-flash-lite-latest"}).sort(porVer);
+    var prev=ok.filter(function(n){return /^gemini-\d+(\.\d+)?-flash(-lite)?-preview$/.test(n)}).sort(porVer);
+    var list=flash.slice(0,2).concat(latest,lite.slice(0,2),prev.slice(0,1));
     lsSet("al_models",{k:clave().slice(-6),t:Date.now(),list:list});return list;
   });
 }
@@ -331,9 +339,28 @@ function preguntarIA(prompt,imagen,signal,temp){
   var partsP=imagen?blobA64(imagen).then(function(d){return [{text:prompt},{inline_data:{mime_type:imagen.type||"image/jpeg",data:d}}]}):Promise.resolve([{text:prompt}]);
   var listaP=modelos().catch(function(e){if(e&&e.code==="clave")throw e;return []});
   return Promise.all([listaP,partsP]).then(function(r){
-    var list=r[0].slice(),parts=r[1],i=0,ultimo=null;
+    var list=r[0].slice(),parts=r[1],i=0,errores=[],retirados=lsGet("al_retirados",[]);
     RESERVA.forEach(function(m){if(list.indexOf(m)<0)list.push(m)});
-    function siguiente(err){ultimo=err;i++;if(i<list.length)return intento();throw ultimo}
+    list=list.filter(function(m){return retirados.indexOf(m)<0});
+    if(!list.length)list=RESERVA.slice();
+    function peor(){
+      // Devuelve el error más útil: primero clave, luego límite, luego cualquiera que no sea "modelo retirado".
+      var orden=["clave","limite","peticion","vacio","json","red"];
+      var no404=errores.filter(function(e){return !e.retirado});
+      var base=(no404.length?no404:errores).slice().sort(function(a,b){return orden.indexOf(a.code)-orden.indexOf(b.code)})[0]||{code:"red"};
+      base.detalle=(base.detalle||"")+(errores.length>1?" (probados: "+errores.map(function(e){return e.modelo}).join(", ")+")":"");
+      return base;
+    }
+    function siguiente(err){
+      errores.push(err);
+      if(err.retirado){
+        if(retirados.indexOf(err.modelo)<0){retirados.push(err.modelo);lsSet("al_retirados",retirados)}
+        lsDel("al_models");if(lsGet("al_ok_model","")===err.modelo)lsDel("al_ok_model");
+        var sug=(err.msg||"").match(/models\/(gemini-[a-z0-9.\-]+)/gi)||[];
+        sug.forEach(function(s){var n=s.replace(/^models\//i,"");if(n!==err.modelo&&list.indexOf(n)<0&&retirados.indexOf(n)<0)list.splice(i+1,0,n)});
+      }
+      i++;if(i<list.length&&i<9)return intento();throw peor();
+    }
     function intento(){
       var m=list[i];
       return fetch(API+"/models/"+encodeURIComponent(m)+":generateContent",{method:"POST",signal:signal,
@@ -344,15 +371,16 @@ function preguntarIA(prompt,imagen,signal,temp){
           var j=null;try{j=JSON.parse(body)}catch(x){}
           if(!res.ok){
             var msg=(j&&j.error&&j.error.message)||body.slice(0,200);
-            var err={code:"red",detalle:m+" · "+res.status+" · "+msg};
+            var err={code:"red",modelo:m,msg:msg,detalle:m+" · "+res.status+" · "+String(msg).slice(0,160)};
             if((res.status===400||res.status===401||res.status===403)&&/API key|API_KEY|PERMISSION_DENIED|permission/i.test(msg)){err.code="clave";throw err}
-            if(res.status===429)err.code="limite";else if(res.status===400)err.code="peticion";
+            if(res.status===404||/no longer available|not found|is not supported for generateContent/i.test(msg))err.retirado=true;
+            else if(res.status===429)err.code="limite";else if(res.status===400)err.code="peticion";
             return siguiente(err);
           }
           var c=j&&j.candidates&&j.candidates[0];
           var t=c&&c.content&&c.content.parts?c.content.parts.map(function(p){return p.thought?"":(p.text||"")}).join(""):"";
-          if(!t)return siguiente({code:"vacio",detalle:m+" · sin texto"+(c&&c.finishReason?" ("+c.finishReason+")":"")});
-          try{var out=leerJSON(t);lsSet("al_ok_model",m);return out}catch(x){return siguiente({code:"json",detalle:m+" · respuesta no válida"})}
+          if(!t)return siguiente({code:"vacio",modelo:m,detalle:m+" · sin texto"+(c&&c.finishReason?" ("+c.finishReason+")":"")});
+          try{var out=leerJSON(t);lsSet("al_ok_model",m);return out}catch(x){return siguiente({code:"json",modelo:m,detalle:m+" · respuesta no válida"})}
         });
       });
     }
@@ -364,7 +392,7 @@ function preguntarIA(prompt,imagen,signal,temp){
     throw {code:"red",detalle:String(e&&e.message||e||"")};
   });
 }
-var RESERVA=["gemini-2.5-flash","gemini-flash-latest","gemini-2.0-flash","gemini-2.5-flash-lite","gemini-2.0-flash-lite"];
+var RESERVA=["gemini-flash-latest","gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash-lite","gemini-flash-lite-latest","gemini-2.5-flash"];
 function probarIA(){
   st.keyState="loading";st.keyMsg="";render();
   preguntarIA('Responde SOLO con este JSON: {"ok": true}').then(function(){
@@ -661,7 +689,7 @@ function guardarClave(){
   var val=($("#keyIn").value||"").trim();
   if(!val){st.keyState="error";st.keyMsg="Pega primero la clave.";render();return}
   var anterior=clave();
-  lsSet("al_key",val);lsDel("al_models");
+  lsSet("al_key",val);lsDel("al_models");lsDel("al_retirados");
   st.keyState="loading";st.keyMsg="";render();
   lsDel("al_ok_model");
   modelos().then(function(){probarIA()})
@@ -992,7 +1020,7 @@ document.addEventListener("click",function(e){
     case "faltan":pedirFaltan();break;
     case "sel":pedirIdeas(a.dataset.id);break;
     case "guardarClave":guardarClave();break;
-    case "quitarClave":lsDel("al_key");lsDel("al_models");st.keyState="idle";st.keyMsg="Clave eliminada.";render();break;
+    case "quitarClave":lsDel("al_key");lsDel("al_models");lsDel("al_retirados");st.keyState="idle";st.keyMsg="Clave eliminada.";render();break;
     case "exportar":exportar();break;
     case "importar":$("#impFile").click();break;
     case "ocultarInstalar":lsSet("al_hide_install",true);render();break;
